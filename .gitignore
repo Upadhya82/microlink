@@ -1,0 +1,14 @@
+# This is the ROOT .gitignore - it only needs to cover things that could
+# show up anywhere in the repo. frontend/ and backend/*/ each have their
+# own more specific .gitignore already (Git respects both at once).
+
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.iml
+
+# Never commit real secrets/environment values - only .env.example files.
+.env
+*.env
+!.env.example

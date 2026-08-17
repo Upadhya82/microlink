@@ -1,0 +1,48 @@
+name: Backend CI
+
+# Only runs when something under backend/ actually changes.
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - 'backend/**'
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'backend/**'
+
+jobs:
+  build-and-check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - api-gateway
+          - user-service
+          - shop-service
+          - recommendation-service
+          - navigation-service
+          - delivery-service
+          - crowdsource-service
+          - admin-service
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: backend/${{ matrix.service }}
+        run: pip install -r requirements.txt
+
+      # NOTE: this only checks the Python code is syntactically valid - it
+      # does NOT actually start the service (that needs a real Postgres +
+      # Redis connection, which this simple job doesn't set up).
+      #
+      # TODO (QA lead): add a `services: postgres:` block (see GitHub's
+      # docs on "service containers") so this can actually boot each app
+      # and run real pytest tests against it.
+      - name: Check the code compiles (syntax check)
+        working-directory: backend/${{ matrix.service }}
+        run: find app -name "*.py" -print0 | xargs -0 python -m py_compile

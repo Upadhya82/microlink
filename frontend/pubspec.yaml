@@ -1,0 +1,54 @@
+name: frontend
+description: "MicroLink - AI and GPS Powered Smart Micro Business Discovery, Navigation, and Delivery Support System."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # --- Networking ---
+  dio: ^5.7.0 # HTTP client used by core/network/api_client.dart to talk to the API Gateway
+  connectivity_plus: ^6.1.0 # detect offline mode (SRS: "You are offline. Showing cached results.")
+
+  # --- State & local storage ---
+  provider: ^6.1.2 # simple state management (auth state, theme, language)
+  shared_preferences: ^2.3.3 # persist theme/language choice locally
+  flutter_secure_storage: ^9.2.2 # store the JWT auth token safely
+
+  # --- Location, maps & voice (Navigation module) ---
+  geolocator: ^13.0.1 # GPS position + permission handling
+  google_maps_flutter: ^2.9.0 # map rendering (swap for mapbox_gl if you prefer Mapbox)
+  flutter_tts: ^4.2.0 # turn-by-turn voice guidance (English / Sinhala / Tamil)
+
+  # --- Files (registration documents, shop photos) ---
+  file_picker: ^8.1.4 # replaces the simulated document picker in register_screen.dart
+
+  # --- Localization ---
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  # To add assets to your application, add an assets section, like this:
+  # assets:
+  #   - images/logo.png
+
+  # To add custom fonts to your application, add a fonts section here.
+  # fonts:
+  #   - family: Schyler
+  #     fonts:
+  #       - asset: fonts/Schyler-Regular.ttf
