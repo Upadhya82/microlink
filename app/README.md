@@ -14,8 +14,9 @@ one file to touch when you add a new screen so it's actually reachable.
 
 By default the app talks to the backend at `http://10.0.2.2:8080`, which
 is the special address the Android emulator uses to reach `localhost` on
-your development machine — i.e. it expects the backend (see `../backend/`)
-to be running locally via `docker compose up`. Change
+your development machine — i.e. it expects the backend (see
+`../services/` and `../api-gateway/`) to be running locally via
+`docker compose up`. Change
 `AppConstants.apiGatewayBaseUrl` in `lib/core/constants/app_constants.dart`
 if you're testing on a real device or a deployed backend.
 
@@ -55,7 +56,7 @@ if you're testing on a real device or a deployed backend.
 2. **Real file picking**: `register_screen.dart`, `add_new_shop_screen.dart`
    etc. use fake hardcoded filenames for document/photo uploads. Swap in
    the `file_picker` package (already added) and send the real file to a
-   backend upload endpoint (see backend README's TODO list).
+   backend upload endpoint (see services README's TODO list).
 3. **State management**: `provider` is added but not used yet. Right now
    login state, language, and theme aren't actually remembered between
    screens/app restarts — wire that up (store the choice with
