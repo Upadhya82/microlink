@@ -6,10 +6,10 @@ manifests if you go that route later), and environment/secrets templates
 for whatever hosting platform you pick (AWS, GCP, etc., per the
 proposal).
 
-For local development, you don't need anything here yet — use
-`backend/docker-compose.yml` and `frontend/` directly (see each folder's
-own README). This folder is specifically for *deploying* the app
-somewhere real, which is a later step.
+For local development, you don't need anything here yet — use the root
+`docker-compose.yml` and `app/` directly (see each folder's own README).
+This folder is specifically for *deploying* the app somewhere real, which
+is a later step.
 
 Suggested contents once you get to that stage:
 - `docker-compose.prod.yml` — production version of the compose file

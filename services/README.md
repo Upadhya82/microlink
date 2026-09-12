@@ -1,4 +1,4 @@
-# MicroLink Backend — Microservices
+# MicroLink Services — Microservices
 
 This implements the architecture described in the project proposal: a
 Client-Server model made of independent microservices, each with its own
@@ -20,7 +20,7 @@ events — never by directly calling into another service's database.
 
 Each service is its own FastAPI app, with its own SQLAlchemy models and its
 own database (`user_db`, `shop_db`, etc. — all hosted on one Postgres
-container for now, see `init-db/`, but logically fully separate).
+container for now, see `../infra/`, but logically fully separate).
 
 ## How the pieces talk to each other
 
@@ -46,7 +46,6 @@ container for now, see `init-db/`, but logically fully separate).
 You need Docker Desktop installed.
 
 ```bash
-cd backend
 cp .env.example .env      # then edit .env if you want, defaults work for local dev
 docker compose up --build
 ```
@@ -66,7 +65,7 @@ will take a minute while images build. Once it's up:
 
 Point the Flutter app at the gateway by setting
 `AppConstants.apiGatewayBaseUrl` in
-`frontend/lib/core/constants/app_constants.dart` — it already defaults to
+`app/lib/core/constants/app_constants.dart` — it already defaults to
 `http://10.0.2.2:8080`, which is correct if you're running the Android
 emulator on the same machine as Docker.
 

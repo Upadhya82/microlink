@@ -1,22 +1,148 @@
 services:
   postgres:
-    image: postgres:16
-    container_name: microlink-postgres
+    image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: devpassword
-      POSTGRES_DB: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-microlink}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-microlink}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh
     ports:
       - "5432:5432"
-    volumes:
-      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
-      - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-microlink}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  user-service:
+    build: ./services/user-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/user_db
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8001:8000"
+
+  shop-service:
+    build: ./services/shop-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/shop_db
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8002:8000"
+
+  recommendation-service:
+    build: ./services/recommendation-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/recommendation_db
+      REDIS_URL: redis://redis:6379/0
+      SHOP_SERVICE_URL: http://shop-service:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      shop-service:
+        condition: service_started
+    ports:
+      - "8003:8000"
+
+  navigation-service:
+    build: ./services/navigation-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/navigation_db
+      REDIS_URL: redis://redis:6379/0
+      MAPS_API_KEY: ${MAPS_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8004:8000"
+
+  delivery-service:
+    build: ./services/delivery-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/delivery_db
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8005:8000"
+
+  crowdsource-service:
+    build: ./services/crowdsource-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/crowdsource_db
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8006:8000"
+
+  admin-service:
+    build: ./services/admin-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/admin_db
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8007:8000"
+
+  api-gateway:
+    build: ./api-gateway
+    restart: unless-stopped
+    environment:
+      USER_SERVICE_URL: http://user-service:8000
+      SHOP_SERVICE_URL: http://shop-service:8000
+      RECOMMENDATION_SERVICE_URL: http://recommendation-service:8000
+      NAVIGATION_SERVICE_URL: http://navigation-service:8000
+      DELIVERY_SERVICE_URL: http://delivery-service:8000
+      CROWDSOURCE_SERVICE_URL: http://crowdsource-service:8000
+      ADMIN_SERVICE_URL: http://admin-service:8000
+    depends_on:
+      - user-service
+      - shop-service
+      - recommendation-service
+      - navigation-service
+      - delivery-service
+      - crowdsource-service
+      - admin-service
+    ports:
+      - "8080:8080"
 
 volumes:
   pgdata:

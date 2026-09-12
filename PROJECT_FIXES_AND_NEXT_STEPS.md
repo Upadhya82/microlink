@@ -45,7 +45,7 @@ normal Git repo) and your new `backend\` folder — you'll set up Git for
   counter-app demo test and would have failed the instant anyone ran
   `flutter test`.
 
-Full details: `frontend/README.md`.
+Full details: `app/README.md`.
 
 ## 3. New backend — full microservices build
 
@@ -58,21 +58,21 @@ calling each other's databases directly. Comes with a `docker-compose.yml`
 that starts the whole thing with one command.
 
 Full details, how to run it, and exactly what's real vs. still a stub:
-`backend/README.md`.
+`services/README.md`.
 
 ## 4. What you (and your team) need to do next
 
 **To get it running:**
 1. Do the Git cleanup in section 1 above.
-2. Install Docker Desktop, then `cd backend && cp .env.example .env && docker compose up --build`.
-3. `cd frontend && flutter pub get && flutter run` (Android emulator by
+2. Install Docker Desktop, then `cp .env.example .env && docker compose up --build`.
+3. `cd app && flutter pub get && flutter run` (Android emulator by
    default talks to the backend automatically via `10.0.2.2:8080`).
 
 **To move from scaffold to a real submission**, in roughly the order it
 unblocks the most people on your 6-person team:
 
 1. **Maps API key** (GIS/Navigation lead) — get a Google Maps Platform or
-   Mapbox key, add it to `backend/.env` and to the Flutter Android/iOS
+   Mapbox key, add it to `.env` and to the Flutter Android/iOS
    config, replace the straight-line distance estimate in
    `navigation-service` with a real Directions API call.
 2. **File uploads** (Backend lead) — add a real upload endpoint (object
