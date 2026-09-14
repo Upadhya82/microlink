@@ -33,7 +33,7 @@ dependencies:
   file_picker: ^8.1.4 # replaces the simulated document picker in register_screen.dart
 
   # --- Localization ---
-  intl: ^0.19.0
+  intl: ^0.20.3
 
 dev_dependencies:
   flutter_test:
