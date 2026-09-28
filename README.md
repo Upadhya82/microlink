@@ -6,10 +6,12 @@ Delivery Support System — Group 13 final year project.
 ## Structure
 
 ```
-frontend/     Flutter mobile app
-backend/      7 microservices + API Gateway (FastAPI, Postgres, Redis, Docker)
+app/          Flutter mobile app
+services/     7 microservices (FastAPI, Postgres, Redis, Docker)
+api-gateway/  Single entry point the app talks to
+infra/        Local dev infra: init-db scripts, alternate compose file
 deploy/       Deployment scripts/config (filled in later by DevOps lead)
-.github/      CI - runs frontend tests / backend syntax checks automatically
+.github/      CI - runs app tests / service syntax checks automatically
 ```
 
 Documents (Proposal, SRS, diagrams) live in the separate `microlink-docs`
@@ -20,28 +22,27 @@ well in Git.
 
 ```bash
 # Backend - starts Postgres, Redis, all 7 services, and the API Gateway
-cd backend
 cp .env.example .env
 docker compose up --build
 
 # Frontend - in a second terminal
-cd frontend
+cd app
 flutter pub get
 flutter run
 ```
 
-More detail in `frontend/README.md` and `backend/README.md`.
+More detail in `app/README.md` and `services/README.md`.
 
 ## Who owns what
 
 | Area | Owner |
 |---|---|
-| `frontend/` | Mobile Frontend Lead |
-| `backend/user-service/`, `backend/shop-service/` | Backend Lead |
-| `backend/recommendation-service/` | AI/ML Engineer |
-| `backend/navigation-service/` | GIS/Navigation Engineer |
-| `backend/api-gateway/`, `backend/admin-service/`, `deploy/` | DevOps & Cloud Engineer |
-| `backend/delivery-service/`, `backend/crowdsource-service/`, testing | QA & Product Support |
+| `app/` | Mobile Frontend Lead |
+| `services/user-service/`, `services/shop-service/` | Backend Lead |
+| `services/recommendation-service/` | AI/ML Engineer |
+| `services/navigation-service/` | GIS/Navigation Engineer |
+| `api-gateway/`, `services/admin-service/`, `deploy/` | DevOps & Cloud Engineer |
+| `services/delivery-service/`, `services/crowdsource-service/`, testing | QA & Product Support |
 
 ## Team workflow
 
@@ -49,9 +50,9 @@ More detail in `frontend/README.md` and `backend/README.md`.
 2. Work mainly inside your own folder above to avoid stepping on teammates.
 3. Push your branch and open a Pull Request — get at least one teammate
    to review before merging. (No one pushes straight to `main`.)
-4. CI runs automatically on your PR (see `.github/workflows/`) — frontend
-   checks run only when `frontend/` changed, backend checks only when
-   `backend/` changed.
+4. CI runs automatically on your PR (see `.github/workflows/`) — app
+   checks run only when `app/` changed, service checks only when
+   `services/` or `api-gateway/` changed.
 
 See `PROJECT_FIXES_AND_NEXT_STEPS.md` for the history of what was fixed
 and what's still TODO.

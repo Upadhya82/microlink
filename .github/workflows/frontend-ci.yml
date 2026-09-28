@@ -1,16 +1,16 @@
 name: Frontend CI
 
-# Only runs when something under frontend/ actually changes - pushing a
+# Only runs when something under app/ actually changes - pushing a
 # backend or docs change will NOT trigger this.
 on:
   push:
     branches: [main, dev]
     paths:
-      - 'frontend/**'
+      - 'app/**'
   pull_request:
     branches: [main, dev]
     paths:
-      - 'frontend/**'
+      - 'app/**'
 
 jobs:
   build-and-test:
@@ -24,13 +24,13 @@ jobs:
           channel: 'stable'
 
       - name: Install dependencies
-        working-directory: frontend
+        working-directory: app
         run: flutter pub get
 
       - name: Static analysis
-        working-directory: frontend
+        working-directory: app
         run: flutter analyze
 
       - name: Run tests
-        working-directory: frontend
+        working-directory: app
         run: flutter test
