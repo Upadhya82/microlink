@@ -1,11 +1,21 @@
 import json
+import logging
+from typing import Any
+
 import redis.asyncio as redis
+
 from app.config import settings
 
-_redis_client = None
+logger = logging.getLogger(settings.service_name)
+
+# Every service publishes to this one channel; admin-service listens on it to
+# build the live activity feed.
+EVENTS_CHANNEL = "microlink.events"
+
+_redis_client: redis.Redis | None = None
 
 
-async def get_redis_client():
+def get_redis_client() -> redis.Redis:
     global _redis_client
     if _redis_client is None:
         _redis_client = redis.Redis(
@@ -16,9 +26,11 @@ async def get_redis_client():
     return _redis_client
 
 
-async def publish_event(topic: str, data: dict) -> None:
+async def publish_event(event_type: str, payload: dict[str, Any]) -> None:
+    """Publish a domain event onto the shared bus. Never raises -- a broken
+    event bus should not take down the request that triggered the event."""
+    message = json.dumps({"event": event_type, "source": settings.service_name, "data": payload})
     try:
-        client = await get_redis_client()
-        await client.publish(topic, json.dumps(data))
+        await get_redis_client().publish(EVENTS_CHANNEL, message)
     except Exception:
-        pass
+        logger.exception("Failed to publish event %s", event_type)
