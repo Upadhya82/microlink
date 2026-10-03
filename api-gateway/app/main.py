@@ -22,6 +22,7 @@ SERVICE_MAP = {
     "/delivery": "http://delivery-service:8000",
     "/crowdsource": "http://crowdsource-service:8000",
     "/admin": "http://admin-service:8000",
+    "/ads": "http://admin-service:8000",
 }
 
 # httpx already decodes the body, so these upstream headers no longer match it.
@@ -34,6 +35,13 @@ def health():
     return {"status": "ok", "service": "api-gateway"}
 
 
+def _strip_api_prefix(path: str) -> str:
+    # The Flutter app calls /api/<service-path>; services themselves have no /api prefix.
+    if path == "api" or path.startswith("api/"):
+        return path[4:]
+    return path
+
+
 def _resolve_target(path: str) -> str | None:
     full_path = f"/{path}"
     for prefix, host in SERVICE_MAP.items():
@@ -44,6 +52,7 @@ def _resolve_target(path: str) -> str | None:
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
 async def gateway_proxy(request: Request, path: str):
+    path = _strip_api_prefix(path)
     target_host = _resolve_target(path)
     if target_host is None:
         return Response(
