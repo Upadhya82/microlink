@@ -1,0 +1,58 @@
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from typing import List, Optional
+
+from ..database import get_db
+from ..models import Shop, Product
+from ..schemas import ShopResponse, ProductResponse
+
+router = APIRouter(prefix="/shops", tags=["shops"])
+
+
+@router.get("/", response_model=List[ShopResponse])
+def get_shops(
+    q: Optional[str] = Query(None, description="Search by name or category"),
+    lat: Optional[float] = Query(None, description="Latitude for radius search"),
+    lng: Optional[float] = Query(None, description="Longitude for radius search"),
+    radius_km: float = Query(5.0, description="Search radius in kilometres"),
+    db: Session = Depends(get_db),
+):
+    """Return shops, optionally filtered by keyword and/or geospatial radius."""
+    query = db.query(Shop)
+
+    if q:
+        query = query.filter(
+            Shop.name.ilike(f"%{q}%") | Shop.category.ilike(f"%{q}%")
+        )
+
+    shops = query.all()
+
+    if lat is not None and lng is not None:
+        def _distance_km(shop):
+            if shop.latitude is None or shop.longitude is None:
+                return float("inf")
+            dlat = shop.latitude - lat
+            dlng = shop.longitude - lng
+            return ((dlat ** 2) + (dlng ** 2)) ** 0.5 * 111
+
+        shops = [s for s in shops if _distance_km(s) <= radius_km]
+
+    return shops
+
+
+@router.get("/{shop_id}", response_model=ShopResponse)
+def get_shop(shop_id: int, db: Session = Depends(get_db)):
+    """Return a single shop by ID."""
+    shop = db.query(Shop).filter(Shop.id == shop_id).first()
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    return shop
+
+
+@router.get("/{shop_id}/products", response_model=List[ProductResponse])
+def get_shop_products(shop_id: int, db: Session = Depends(get_db)):
+    """Return all products for a given shop."""
+    shop = db.query(Shop).filter(Shop.id == shop_id).first()
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    return db.query(Product).filter(Product.shop_id == shop_id).all()
