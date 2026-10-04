@@ -16,6 +16,7 @@ dependencies:
   cupertino_icons: ^1.0.8
 
   # --- Networking ---
+  http: ^1.2.2 # used by core/network/api_client.dart
   dio: ^5.7.0 # HTTP client used by core/network/api_client.dart to talk to the API Gateway
   connectivity_plus: ^6.1.0 # detect offline mode (SRS: "You are offline. Showing cached results.")
 
@@ -26,6 +27,9 @@ dependencies:
 
   # --- Location, maps & voice (Navigation module) ---
   geolocator: ^13.0.1 # GPS position + permission handling
+  flutter_map: ^7.0.2 # OpenStreetMap map widget (Live Map, Delivery Tracking)
+  latlong2: ^0.9.1 # LatLng type used by flutter_map
+  google_fonts: ^6.2.1 # fonts used by core/theme/app_theme.dart
   google_maps_flutter: ^2.9.0 # map rendering (swap for mapbox_gl if you prefer Mapbox)
   flutter_tts: ^4.2.0 # turn-by-turn voice guidance (English / Sinhala / Tamil)
 
