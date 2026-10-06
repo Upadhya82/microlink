@@ -218,7 +218,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                ..._roleOptions.map(_buildRoleCard),
+                RadioGroup<String>(
+                  groupValue: _selectedRole,
+                  onChanged: (value) {
+                    if (!_isSubmitting && value != null) setState(() => _selectedRole = value);
+                  },
+                  child: Column(children: _roleOptions.map(_buildRoleCard).toList()),
+                ),
                 const SizedBox(height: AppSpacing.xl),
                 AppButton(
                   label: 'Create Account',
@@ -284,12 +290,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             Radio<String>(
               value: option.value,
-              groupValue: _selectedRole,
-              onChanged: _isSubmitting
-                  ? null
-                  : (value) {
-                      if (value != null) setState(() => _selectedRole = value);
-                    },
+              enabled: !_isSubmitting,
               activeColor: colorScheme.primary,
             ),
           ],
