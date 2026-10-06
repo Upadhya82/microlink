@@ -1,2 +1,1789 @@
-// TODO: implement shop_owner_dashboard_screen.dart
-// (structure-only placeholder - see the full version for the real code)
+import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+
+import '../../../core/constants/app_constants.dart';
+import '../../../core/models/shop.dart';
+import '../../../core/network/api_client.dart';
+import '../../../core/network/api_exception.dart';
+import '../../../core/network/session_manager.dart';
+import '../../../core/theme/app_colors_extension.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/theme_controller.dart';
+import '../../../core/utils/route_args.dart';
+import '../../../core/utils/validators.dart';
+import '../../../core/utils/view_state.dart';
+import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/rating_chip.dart';
+import '../../../core/widgets/skeleton_list.dart';
+import '../../../core/widgets/status_badge.dart';
+
+/// The Shop Owner's workspace: their shop's open/closed status, products,
+/// alerts and analytics, all on one screen. Serves two roles:
+///
+///  * as the shop owner's **Home tab** -- pass [onOpenAccount], and it renders
+///    a greeting header (with theme + account buttons) and no Scaffold, since
+///    HomeScreen supplies the Scaffold and bottom nav.
+///  * as a **standalone route** -- leave [onOpenAccount] null and it renders
+///    its own Scaffold + AppBar (used by the "manage your shop" hint link on
+///    a shop's detail page).
+///
+/// If the owner manages more than one shop a selector switches between them;
+/// if they have none it shows a create-shop prompt.
+class ShopOwnerDashboardScreen extends StatefulWidget {
+  final void Function(BuildContext context)? onOpenAccount;
+
+  const ShopOwnerDashboardScreen({super.key, this.onOpenAccount});
+
+  @override
+  State<ShopOwnerDashboardScreen> createState() =>
+      _ShopOwnerDashboardScreenState();
+}
+
+class _ShopOwnerDashboardScreenState extends State<ShopOwnerDashboardScreen> {
+  ViewState<List<Shop>> _state = const ViewLoading();
+  String? _selectedShopId;
+
+  bool get _embedded => widget.onOpenAccount != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadShops();
+  }
+
+  Future<void> _loadShops() async {
+    setState(() => _state = const ViewLoading());
+    try {
+      final response = await ApiClient.instance.get('/shops/owner/me') as List;
+      final shops = response
+          .map((e) => Shop.fromJson(e as Map<String, dynamic>))
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _state = ViewData(shops);
+        // Keep the current selection if it still exists, else pick the first.
+        if (shops.every((s) => s.id != _selectedShopId)) {
+          _selectedShopId = shops.isNotEmpty ? shops.first.id : null;
+        }
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _state = ViewError(e.message));
+    }
+  }
+
+  Future<void> _openCreateShopForm() async {
+    final created = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const _ShopFormSheet(),
+    );
+    if (created == true) _loadShops();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_embedded) {
+      return Column(
+        children: [
+          _EmbeddedHeader(onOpenAccount: widget.onOpenAccount!),
+          Expanded(child: _content()),
+        ],
+      );
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('My Shops'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: 'Create Shop',
+            onPressed: _openCreateShopForm,
+          ),
+        ],
+      ),
+      body: _content(),
+    );
+  }
+
+  Widget _content() {
+    return AsyncStateView<List<Shop>>(
+      state: _state,
+      onRetry: _loadShops,
+      builder: (context, shops) {
+        if (shops.isEmpty) return _emptyState();
+        final selected = shops.firstWhere(
+          (s) => s.id == _selectedShopId,
+          orElse: () => shops.first,
+        );
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.md, AppSpacing.sm, 0),
+              child: Row(
+                children: [
+                  if (shops.length > 1)
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: selected.id,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'Shop', isDense: true),
+                        items: shops
+                            .map((s) => DropdownMenuItem(
+                                  value: s.id,
+                                  child: Text(s.name, overflow: TextOverflow.ellipsis),
+                                ))
+                            .toList(),
+                        onChanged: (value) => setState(() => _selectedShopId = value),
+                      ),
+                    )
+                  else
+                    Expanded(
+                      child: Text(
+                        selected.name,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  const SizedBox(width: AppSpacing.sm),
+                  selected.isOpen ? StatusBadge.open(context) : StatusBadge.closed(context),
+                  if (_embedded)
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline),
+                      tooltip: 'Create another shop',
+                      onPressed: _openCreateShopForm,
+                    ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _ShopWorkspace(
+                key: ValueKey(selected.id),
+                shop: selected,
+                onChanged: _loadShops,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _emptyState() {
+    return RefreshIndicator(
+      onRefresh: _loadShops,
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.xxl),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.storefront_outlined,
+                      size: 56,
+                      color: context.appColors.textSecondary,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      "You haven't listed a shop yet",
+                      style: Theme.of(context).textTheme.titleMedium,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'Create your shop profile so customers can find you.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium
+                          ?.copyWith(color: context.appColors.textSecondary),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    AppButton(
+                      label: 'Create Shop',
+                      icon: Icons.add,
+                      expand: false,
+                      onPressed: _openCreateShopForm,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The greeting strip shown above the workspace when it is the shop owner's
+/// Home tab -- mirrors the header the other role homes use.
+class _EmbeddedHeader extends StatelessWidget {
+  final void Function(BuildContext context) onOpenAccount;
+
+  const _EmbeddedHeader({required this.onOpenAccount});
+
+  @override
+  Widget build(BuildContext context) {
+    final session = SessionManager.instance;
+    final textTheme = Theme.of(context).textTheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.sm, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _greeting(),
+                  style: textTheme.bodyMedium?.copyWith(color: context.appColors.textSecondary),
+                ),
+                Text(
+                  'Hi, ${session.userName ?? 'there'}',
+                  style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: Icon(isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
+            tooltip: 'Switch to ${isDark ? 'light' : 'dark'} mode',
+            onPressed: () => ThemeController.instance.toggle(Theme.of(context).brightness),
+          ),
+          IconButton(
+            icon: const Icon(Icons.account_circle_outlined),
+            tooltip: 'Account',
+            onPressed: () => onOpenAccount(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _greeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Create / edit shop form
+// ---------------------------------------------------------------------------
+
+String _formatTimeOfDay(TimeOfDay time) =>
+    '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+
+TimeOfDay? _parseTimeOfDay(String? value) {
+  if (value == null) return null;
+  final parts = value.split(':');
+  if (parts.length != 2) return null;
+  final hour = int.tryParse(parts[0]);
+  final minute = int.tryParse(parts[1]);
+  if (hour == null || minute == null) return null;
+  return TimeOfDay(hour: hour, minute: minute);
+}
+
+String _formatDate(DateTime date) {
+  final local = date.toLocal();
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  return '$month/$day/${local.year}';
+}
+
+const List<String> _weekdayLabels = [
+  'Mon',
+  'Tue',
+  'Wed',
+  'Thu',
+  'Fri',
+  'Sat',
+  'Sun',
+];
+
+String _shortWeekday(DateTime date) => _weekdayLabels[date.weekday - 1];
+
+/// Create/edit form for a shop, shown as a scrollable bottom sheet. Pops with
+/// `true` when the shop was created/updated so the caller can refresh.
+class _ShopFormSheet extends StatefulWidget {
+  final Shop? existingShop;
+  const _ShopFormSheet({this.existingShop});
+
+  @override
+  State<_ShopFormSheet> createState() => _ShopFormSheetState();
+}
+
+class _ShopFormSheetState extends State<_ShopFormSheet> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _descController;
+  late final TextEditingController _addressController;
+  late final TextEditingController _phoneController;
+  late final TextEditingController _imageUrlController;
+  String? _category;
+  TimeOfDay? _openingTime;
+  TimeOfDay? _closingTime;
+  double? _latitude;
+  double? _longitude;
+  bool _locating = false;
+  bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existingShop;
+    _nameController = TextEditingController(text: existing?.name ?? '');
+    _descController = TextEditingController(text: existing?.description ?? '');
+    _addressController = TextEditingController(text: existing?.address ?? '');
+    _phoneController = TextEditingController(text: existing?.phone ?? '');
+    _imageUrlController = TextEditingController(text: existing?.imageUrl ?? '');
+    _category = existing?.category;
+    _openingTime = _parseTimeOfDay(existing?.openingTime);
+    _closingTime = _parseTimeOfDay(existing?.closingTime);
+    _latitude = existing?.latitude;
+    _longitude = existing?.longitude;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descController.dispose();
+    _addressController.dispose();
+    _phoneController.dispose();
+    _imageUrlController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _useCurrentLocation() async {
+    setState(() => _locating = true);
+    try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        throw const ApiException('Location permission was denied.');
+      }
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw const ApiException(
+          'Please enable location services and try again.',
+        );
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        _latitude = position.latitude;
+        _longitude = position.longitude;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      final message = e is ApiException
+          ? e.message
+          : 'Could not get your current location.';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
+
+  Future<void> _submit() async {
+    final formState = _formKey.currentState;
+    if (formState == null || !formState.validate()) return;
+    if (_openingTime == null || _closingTime == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select an opening and closing time.')),
+      );
+      return;
+    }
+    if (_latitude == null || _longitude == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Set the shop location.')));
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    final body = <String, dynamic>{
+      'name': _nameController.text.trim(),
+      'description': _descController.text.trim(),
+      'category': _category,
+      'address': _addressController.text.trim(),
+      'latitude': _latitude,
+      'longitude': _longitude,
+      'opening_time': _formatTimeOfDay(_openingTime!),
+      'closing_time': _formatTimeOfDay(_closingTime!),
+      if (_phoneController.text.trim().isNotEmpty)
+        'phone': _phoneController.text.trim(),
+      if (_imageUrlController.text.trim().isNotEmpty)
+        'image_url': _imageUrlController.text.trim(),
+    };
+
+    try {
+      if (widget.existingShop != null) {
+        await ApiClient.instance.patch(
+          '/shops/${widget.existingShop!.id}',
+          body: body,
+        );
+      } else {
+        await ApiClient.instance.post('/shops', body: body);
+      }
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  Widget _buildTimeField(
+    String label,
+    TimeOfDay? value,
+    ValueChanged<TimeOfDay> onChanged,
+  ) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppRadius.input),
+      onTap: () async {
+        final picked = await showTimePicker(
+          context: context,
+          initialTime: value ?? const TimeOfDay(hour: 9, minute: 0),
+        );
+        if (picked != null) onChanged(picked);
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          suffixIcon: const Icon(Icons.access_time_outlined),
+        ),
+        child: Text(value == null ? 'Select time' : value.format(context)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEdit = widget.existingShop != null;
+    final hasLocation = _latitude != null && _longitude != null;
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: Form(
+            key: _formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    isEdit ? 'Edit Shop Details' : 'Create Shop',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  AppTextField(
+                    controller: _nameController,
+                    label: 'Shop name',
+                    validator: (v) =>
+                        Validators.required(v, field: 'Shop name'),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  AppTextField(
+                    controller: _descController,
+                    label: 'Description',
+                    maxLines: 3,
+                    validator: (v) =>
+                        Validators.required(v, field: 'Description'),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  DropdownButtonFormField<String>(
+                    initialValue: _category,
+                    decoration: const InputDecoration(labelText: 'Category'),
+                    items: shopCategories
+                        .map(
+                          (c) => DropdownMenuItem(
+                            value: c,
+                            child: Text(formatCategoryLabel(c)),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) => setState(() => _category = value),
+                    validator: (value) =>
+                        value == null ? 'Select a category' : null,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  AppTextField(
+                    controller: _addressController,
+                    label: 'Address',
+                    validator: (v) => Validators.required(v, field: 'Address'),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  AppTextField(
+                    controller: _phoneController,
+                    label: 'Phone (optional)',
+                    keyboardType: TextInputType.phone,
+                    validator: Validators.phone,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  AppTextField(
+                    controller: _imageUrlController,
+                    label: 'Image URL (optional)',
+                    keyboardType: TextInputType.url,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildTimeField(
+                          'Opening time',
+                          _openingTime,
+                          (value) => setState(() => _openingTime = value),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: _buildTimeField(
+                          'Closing time',
+                          _closingTime,
+                          (value) => setState(() => _closingTime = value),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  Text(
+                    'Location',
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    hasLocation
+                        ? 'Lat: ${_latitude!.toStringAsFixed(5)}, Lng: ${_longitude!.toStringAsFixed(5)}'
+                        : 'No location set yet',
+                    style: TextStyle(color: context.appColors.textSecondary),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  AppButton(
+                    label: hasLocation
+                        ? 'Update Current Location'
+                        : 'Use My Current Location',
+                    icon: Icons.my_location,
+                    variant: AppButtonVariant.outlined,
+                    isLoading: _locating,
+                    onPressed: _locating ? null : _useCurrentLocation,
+                  ),
+                  const SizedBox(height: AppSpacing.xl),
+                  AppButton(
+                    label: isEdit ? 'Save Changes' : 'Create Shop',
+                    isLoading: _isSubmitting,
+                    onPressed: _isSubmitting ? null : _submit,
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Per-shop workspace: status, products, alerts, analytics (no Scaffold of its
+// own -- embedded in the shop owner's Home tab / dashboard screen above).
+// ---------------------------------------------------------------------------
+
+class _ShopWorkspace extends StatefulWidget {
+  final Shop shop;
+
+  /// Called after a change that the parent's shop list should reflect (status
+  /// toggled, details edited) so it can re-fetch.
+  final VoidCallback onChanged;
+
+  const _ShopWorkspace({super.key, required this.shop, required this.onChanged});
+
+  @override
+  State<_ShopWorkspace> createState() => _ShopWorkspaceState();
+}
+
+class _ShopWorkspaceState extends State<_ShopWorkspace> {
+  late Shop _shop;
+  late bool _isOpen;
+  bool _togglingStatus = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _shop = widget.shop;
+    _isOpen = widget.shop.isOpen;
+  }
+
+  @override
+  void didUpdateWidget(covariant _ShopWorkspace oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Parent handed us a refreshed copy of the same shop (e.g. after an edit).
+    if (!identical(oldWidget.shop, widget.shop) && !_togglingStatus) {
+      _shop = widget.shop;
+      _isOpen = widget.shop.isOpen;
+    }
+  }
+
+  Future<void> _toggleStatus(bool value) async {
+    final previous = _isOpen;
+    setState(() {
+      _isOpen = value;
+      _togglingStatus = true;
+    });
+    try {
+      await ApiClient.instance.patch(
+        '/shops/${_shop.id}/status',
+        body: {'is_open': value},
+      );
+      widget.onChanged();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _isOpen = previous);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _togglingStatus = false);
+    }
+  }
+
+  Future<void> _openEditForm() async {
+    final updated = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _ShopFormSheet(existingShop: _shop),
+    );
+    if (updated == true) widget.onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 4,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpacing.sm, AppSpacing.xs, AppSpacing.sm, 0),
+            child: Row(
+              children: [
+                TextButton.icon(
+                  onPressed: _openEditForm,
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  label: const Text('Edit details'),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: () => Navigator.pushNamed(
+                    context,
+                    AppRoutes.submitAd,
+                    arguments: SubmitAdArgs(shopId: _shop.id, shopName: _shop.name),
+                  ),
+                  icon: const Icon(Icons.campaign_outlined, size: 18),
+                  label: const Text('Promote'),
+                ),
+              ],
+            ),
+          ),
+          const TabBar(
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            tabs: [
+              Tab(text: 'Overview'),
+              Tab(text: 'Products'),
+              Tab(text: 'Alerts'),
+              Tab(text: 'Analytics'),
+            ],
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                _OverviewTab(
+                  shop: _shop,
+                  isOpen: _isOpen,
+                  toggling: _togglingStatus,
+                  onToggleStatus: _toggleStatus,
+                  onEditShop: _openEditForm,
+                ),
+                _ProductsTab(shopId: _shop.id),
+                _AlertsTab(shopId: _shop.id),
+                _AnalyticsTab(shopId: _shop.id),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Overview tab
+// ---------------------------------------------------------------------------
+
+/// The shop's top-level snapshot: open/closed status, quick stats, and a
+/// preview of recent alerts. Reuses the same `/shops/{id}/alerts` endpoint
+/// the Alerts tab already calls -- just to power this preview and count.
+class _OverviewTab extends StatefulWidget {
+  final Shop shop;
+  final bool isOpen;
+  final bool toggling;
+  final ValueChanged<bool> onToggleStatus;
+  final VoidCallback onEditShop;
+
+  const _OverviewTab({
+    required this.shop,
+    required this.isOpen,
+    required this.toggling,
+    required this.onToggleStatus,
+    required this.onEditShop,
+  });
+
+  @override
+  State<_OverviewTab> createState() => _OverviewTabState();
+}
+
+class _OverviewTabState extends State<_OverviewTab> {
+  ViewState<List<ShopAlert>> _state = const ViewLoading();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _state = const ViewLoading());
+    try {
+      final response = await ApiClient.instance.get(
+        '/shops/${widget.shop.id}/alerts',
+      ) as List;
+      final alerts = response
+          .map((e) => ShopAlert.fromJson(e as Map<String, dynamic>))
+          .toList();
+      if (!mounted) return;
+      setState(() => _state = ViewData(alerts));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _state = ViewError(e.message));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: AsyncStateView<List<ShopAlert>>(
+        state: _state,
+        onRetry: _load,
+        loadingSkeleton: const SkeletonList(itemCount: 3, itemHeight: 90),
+        builder: (context, alerts) {
+          final recent = alerts.take(3).toList();
+          return ListView(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            children: [
+              _ShopStatusCard(
+                isOpen: widget.isOpen,
+                toggling: widget.toggling,
+                onChanged: widget.onToggleStatus,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Row(
+                children: [
+                  Expanded(
+                    child: _StatCard(
+                      icon: Icons.star_rounded,
+                      color: colorScheme.secondary,
+                      valueWidget: RatingChip(
+                        rating: widget.shop.ratingAvg,
+                        count: widget.shop.ratingCount,
+                      ),
+                      label: 'Avg. rating',
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: _StatCard(
+                      icon: Icons.report_gmailerrorred_outlined,
+                      color: colorScheme.error,
+                      value: '${alerts.length}',
+                      label: 'Open reports',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Recent alerts',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  TextButton.icon(
+                    onPressed: widget.onEditShop,
+                    icon: const Icon(Icons.arrow_forward, size: 14),
+                    label: const Text('Edit shop'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              if (recent.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
+                  child: Text(
+                    'No alerts right now.',
+                    style: TextStyle(color: context.appColors.textSecondary),
+                  ),
+                )
+              else
+                ...recent.map(
+                  (alert) => Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: _AlertPreviewCard(alert: alert),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// The prominent tinted open/closed status card from the approved mockup.
+class _ShopStatusCard extends StatelessWidget {
+  final bool isOpen;
+  final bool toggling;
+  final ValueChanged<bool> onChanged;
+
+  const _ShopStatusCard({
+    required this.isOpen,
+    required this.toggling,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final colors = context.appColors;
+    final tint = isOpen
+        ? colorScheme.primaryContainer
+        : colorScheme.error.withValues(alpha: 0.12);
+    final accent = isOpen ? colors.success : colorScheme.error;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: tint,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isOpen ? 'Shop is Open' : 'Shop is Closed',
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700, color: accent),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  isOpen
+                      ? 'Customers can see you on the map'
+                      : 'Customers cannot find you right now',
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: accent),
+                ),
+              ],
+            ),
+          ),
+          Switch(value: isOpen, onChanged: toggling ? null : onChanged),
+        ],
+      ),
+    );
+  }
+}
+
+/// One "recent alert" row: a tinted icon box + message + relative timestamp.
+class _AlertPreviewCard extends StatelessWidget {
+  final ShopAlert alert;
+  const _AlertPreviewCard({required this.alert});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final colors = context.appColors;
+    return AppCard(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: colorScheme.secondaryContainer,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              Icons.campaign_outlined,
+              size: 18,
+              color: colors.warning,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  alert.message,
+                  style: Theme.of(context).textTheme.bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  _relativeTime(alert.createdAt),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: colors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A short, human-friendly relative timestamp ("2h ago", "Yesterday"),
+/// falling back to an absolute date for anything older than a week.
+String _relativeTime(DateTime dateTime) {
+  final diff = DateTime.now().difference(dateTime.toLocal());
+  if (diff.inMinutes < 1) return 'Just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+  if (diff.inHours < 24) return '${diff.inHours}h ago';
+  if (diff.inDays == 1) return 'Yesterday';
+  if (diff.inDays < 7) return '${diff.inDays}d ago';
+  return _formatDate(dateTime);
+}
+
+// ---------------------------------------------------------------------------
+// Products tab
+// ---------------------------------------------------------------------------
+
+class _ProductsTab extends StatefulWidget {
+  final String shopId;
+  const _ProductsTab({required this.shopId});
+
+  @override
+  State<_ProductsTab> createState() => _ProductsTabState();
+}
+
+class _ProductsTabState extends State<_ProductsTab> {
+  ViewState<List<Product>> _state = const ViewLoading();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _state = const ViewLoading());
+    try {
+      final response = await ApiClient.instance.get(
+        '/shops/${widget.shopId}/products',
+      ) as List;
+      final products = response
+          .map((e) => Product.fromJson(e as Map<String, dynamic>))
+          .toList();
+      if (!mounted) return;
+      setState(() => _state = ViewData(products));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _state = ViewError(e.message));
+    }
+  }
+
+  Future<void> _openProductForm({Product? existing}) async {
+    final changed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) =>
+          _ProductFormSheet(shopId: widget.shopId, existingProduct: existing),
+    );
+    if (changed == true) _load();
+  }
+
+  Future<void> _deleteProduct(Product product) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete product?'),
+        content: Text('Remove "${product.name}" from this shop?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await ApiClient.instance.delete(
+        '/shops/${widget.shopId}/products/${product.id}',
+      );
+      _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _toggleAvailability(Product product, bool value) async {
+    try {
+      await ApiClient.instance.patch(
+        '/shops/${widget.shopId}/products/${product.id}',
+        body: {'is_available': value},
+      );
+      _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.md,
+            AppSpacing.lg,
+            0,
+          ),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: AppButton(
+              label: 'Add Product',
+              icon: Icons.add,
+              expand: false,
+              onPressed: () => _openProductForm(),
+            ),
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: AsyncStateView<List<Product>>(
+              state: _state,
+              onRetry: _load,
+              isEmpty: (data) => data.isEmpty,
+              emptyTitle: 'No products yet',
+              emptyMessage: 'Add products so customers know what you sell.',
+              emptyIcon: Icons.inventory_2_outlined,
+              loadingSkeleton: const SkeletonList(itemCount: 4, itemHeight: 90),
+              builder: (context, products) => ListView.separated(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  AppSpacing.lg,
+                  AppSpacing.lg,
+                  AppSpacing.xxxl,
+                ),
+                itemCount: products.length,
+                separatorBuilder: (_, _) =>
+                    const SizedBox(height: AppSpacing.md),
+                itemBuilder: (context, index) {
+                  final product = products[index];
+                  return AppCard(
+                    onTap: () => _openProductForm(existing: product),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                product.name,
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: AppSpacing.xs),
+                              Text(
+                                '\$${product.price.toStringAsFixed(2)} · Stock: ${product.stockQuantity} · '
+                                '${formatCategoryLabel(product.category)}',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: context.appColors.textSecondary,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Switch(
+                              value: product.isAvailable,
+                              onChanged: (value) =>
+                                  _toggleAvailability(product, value),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () => _deleteProduct(product),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Create/edit form for a product, shown as a scrollable bottom sheet.
+class _ProductFormSheet extends StatefulWidget {
+  final String shopId;
+  final Product? existingProduct;
+  const _ProductFormSheet({required this.shopId, this.existingProduct});
+
+  @override
+  State<_ProductFormSheet> createState() => _ProductFormSheetState();
+}
+
+class _ProductFormSheetState extends State<_ProductFormSheet> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _descController;
+  late final TextEditingController _priceController;
+  late final TextEditingController _stockController;
+  late final TextEditingController _categoryController;
+  late bool _isAvailable;
+  bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existingProduct;
+    _nameController = TextEditingController(text: existing?.name ?? '');
+    _descController = TextEditingController(text: existing?.description ?? '');
+    _priceController = TextEditingController(
+      text: existing != null ? existing.price.toString() : '',
+    );
+    _stockController = TextEditingController(
+      text: existing != null ? existing.stockQuantity.toString() : '',
+    );
+    _categoryController = TextEditingController(text: existing?.category ?? '');
+    _isAvailable = existing?.isAvailable ?? true;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descController.dispose();
+    _priceController.dispose();
+    _stockController.dispose();
+    _categoryController.dispose();
+    super.dispose();
+  }
+
+  String? _validateStock(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Stock quantity is required';
+    }
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null || parsed < 0) return 'Enter a valid stock quantity';
+    return null;
+  }
+
+  Future<void> _submit() async {
+    final formState = _formKey.currentState;
+    if (formState == null || !formState.validate()) return;
+
+    setState(() => _isSubmitting = true);
+    final isEdit = widget.existingProduct != null;
+    final body = <String, dynamic>{
+      'name': _nameController.text.trim(),
+      'description': _descController.text.trim(),
+      'price': double.parse(_priceController.text.trim()),
+      'stock_quantity': int.parse(_stockController.text.trim()),
+      'category': _categoryController.text.trim(),
+      if (isEdit) 'is_available': _isAvailable,
+    };
+    try {
+      if (isEdit) {
+        await ApiClient.instance.patch(
+          '/shops/${widget.shopId}/products/${widget.existingProduct!.id}',
+          body: body,
+        );
+      } else {
+        await ApiClient.instance.post(
+          '/shops/${widget.shopId}/products',
+          body: body,
+        );
+      }
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEdit = widget.existingProduct != null;
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: Form(
+            key: _formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    isEdit ? 'Edit Product' : 'Add Product',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  AppTextField(
+                    controller: _nameController,
+                    label: 'Product name',
+                    validator: (v) =>
+                        Validators.required(v, field: 'Product name'),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  AppTextField(
+                    controller: _descController,
+                    label: 'Description',
+                    maxLines: 3,
+                    validator: (v) =>
+                        Validators.required(v, field: 'Description'),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  AppTextField(
+                    controller: _priceController,
+                    label: 'Price',
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    validator: (v) =>
+                        Validators.positiveNumber(v, field: 'Price'),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  AppTextField(
+                    controller: _stockController,
+                    label: 'Stock quantity',
+                    keyboardType: TextInputType.number,
+                    validator: _validateStock,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  AppTextField(
+                    controller: _categoryController,
+                    label: 'Category',
+                    validator: (v) => Validators.required(v, field: 'Category'),
+                  ),
+                  if (isEdit) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: _isAvailable,
+                      onChanged: (value) =>
+                          setState(() => _isAvailable = value),
+                      title: const Text('Available'),
+                    ),
+                  ],
+                  const SizedBox(height: AppSpacing.xl),
+                  AppButton(
+                    label: isEdit ? 'Save Changes' : 'Add Product',
+                    isLoading: _isSubmitting,
+                    onPressed: _isSubmitting ? null : _submit,
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Alerts tab
+// ---------------------------------------------------------------------------
+
+class _AlertsTab extends StatefulWidget {
+  final String shopId;
+  const _AlertsTab({required this.shopId});
+
+  @override
+  State<_AlertsTab> createState() => _AlertsTabState();
+}
+
+class _AlertsTabState extends State<_AlertsTab> {
+  ViewState<List<ShopAlert>> _state = const ViewLoading();
+  final _messageController = TextEditingController();
+  bool _posting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() => _state = const ViewLoading());
+    try {
+      final response = await ApiClient.instance.get(
+        '/shops/${widget.shopId}/alerts',
+      ) as List;
+      final alerts = response
+          .map((e) => ShopAlert.fromJson(e as Map<String, dynamic>))
+          .toList();
+      if (!mounted) return;
+      setState(() => _state = ViewData(alerts));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _state = ViewError(e.message));
+    }
+  }
+
+  Future<void> _postAlert() async {
+    final message = _messageController.text.trim();
+    if (message.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a message for the alert.')),
+      );
+      return;
+    }
+    setState(() => _posting = true);
+    try {
+      await ApiClient.instance.post(
+        '/shops/${widget.shopId}/alerts',
+        body: {'message': message},
+      );
+      _messageController.clear();
+      if (!mounted) return;
+      await _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _posting = false);
+    }
+  }
+
+  Future<void> _deleteAlert(ShopAlert alert) async {
+    try {
+      await ApiClient.instance.delete(
+        '/shops/${widget.shopId}/alerts/${alert.id}',
+      );
+      _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: AppTextField(
+                  controller: _messageController,
+                  label: 'New alert message',
+                  maxLines: 2,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              IconButton.filled(
+                onPressed: _posting ? null : _postAlert,
+                icon: _posting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: AsyncStateView<List<ShopAlert>>(
+              state: _state,
+              onRetry: _load,
+              isEmpty: (data) => data.isEmpty,
+              emptyTitle: 'No active alerts',
+              emptyMessage:
+                  'Post an alert to let customers know about changes.',
+              emptyIcon: Icons.campaign_outlined,
+              loadingSkeleton: const SkeletonList(itemCount: 3, itemHeight: 64),
+              builder: (context, alerts) => ListView.separated(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  0,
+                  AppSpacing.lg,
+                  AppSpacing.xxxl,
+                ),
+                itemCount: alerts.length,
+                separatorBuilder: (_, _) =>
+                    const SizedBox(height: AppSpacing.md),
+                itemBuilder: (context, index) {
+                  final alert = alerts[index];
+                  return AppCard(
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(alert.message),
+                              const SizedBox(height: AppSpacing.xs),
+                              Text(
+                                _formatDate(alert.createdAt),
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: context.appColors.textSecondary,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline),
+                          onPressed: () => _deleteAlert(alert),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Analytics tab
+// ---------------------------------------------------------------------------
+
+class _DailyViews {
+  final DateTime date;
+  final int views;
+  const _DailyViews({required this.date, required this.views});
+
+  factory _DailyViews.fromJson(Map<String, dynamic> json) {
+    return _DailyViews(
+      date: DateTime.parse(json['date'] as String),
+      views: (json['views'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class _ShopAnalytics {
+  final int totalViews;
+  final int totalSearchImpressions;
+  final int productCount;
+  final int activeAlertCount;
+  final List<_DailyViews> viewsLast7Days;
+
+  const _ShopAnalytics({
+    required this.totalViews,
+    required this.totalSearchImpressions,
+    required this.productCount,
+    required this.activeAlertCount,
+    required this.viewsLast7Days,
+  });
+
+  factory _ShopAnalytics.fromJson(Map<String, dynamic> json) {
+    final rawDays = json['views_last_7_days'] as List? ?? const [];
+    return _ShopAnalytics(
+      totalViews: (json['total_views'] as num?)?.toInt() ?? 0,
+      totalSearchImpressions:
+          (json['total_search_impressions'] as num?)?.toInt() ?? 0,
+      productCount: (json['product_count'] as num?)?.toInt() ?? 0,
+      activeAlertCount: (json['active_alert_count'] as num?)?.toInt() ?? 0,
+      viewsLast7Days: rawDays
+          .map((e) => _DailyViews.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class _AnalyticsTab extends StatefulWidget {
+  final String shopId;
+  const _AnalyticsTab({required this.shopId});
+
+  @override
+  State<_AnalyticsTab> createState() => _AnalyticsTabState();
+}
+
+class _AnalyticsTabState extends State<_AnalyticsTab> {
+  ViewState<_ShopAnalytics> _state = const ViewLoading();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _state = const ViewLoading());
+    try {
+      final response = await ApiClient.instance.get(
+        '/shops/${widget.shopId}/analytics',
+      ) as Map<String, dynamic>;
+      if (!mounted) return;
+      setState(() => _state = ViewData(_ShopAnalytics.fromJson(response)));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _state = ViewError(e.message));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: AsyncStateView<_ShopAnalytics>(
+        state: _state,
+        onRetry: _load,
+        loadingSkeleton: const SkeletonList(itemCount: 4, itemHeight: 80),
+        builder: (context, analytics) => ListView(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          children: [
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: AppSpacing.md,
+              crossAxisSpacing: AppSpacing.md,
+              childAspectRatio: 1.6,
+              children: [
+                _StatCard(
+                  label: 'Total Views',
+                  value: '${analytics.totalViews}',
+                  icon: Icons.visibility_outlined,
+                ),
+                _StatCard(
+                  label: 'Search Impressions',
+                  value: '${analytics.totalSearchImpressions}',
+                  icon: Icons.search,
+                ),
+                _StatCard(
+                  label: 'Products',
+                  value: '${analytics.productCount}',
+                  icon: Icons.inventory_2_outlined,
+                ),
+                _StatCard(
+                  label: 'Active Alerts',
+                  value: '${analytics.activeAlertCount}',
+                  icon: Icons.campaign_outlined,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            Text(
+              'Views — Last 7 Days',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            AppCard(
+              child: analytics.viewsLast7Days.isEmpty
+                  ? Text(
+                      'No view data yet.',
+                      style: TextStyle(color: context.appColors.textSecondary),
+                    )
+                  : _ViewsBarChart(data: analytics.viewsLast7Days),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final String label;
+  final String? value;
+  final Widget? valueWidget;
+  final IconData icon;
+  final Color? color;
+
+  const _StatCard({
+    required this.label,
+    this.value,
+    this.valueWidget,
+    required this.icon,
+    this.color,
+  }) : assert(
+         value != null || valueWidget != null,
+         'Provide either value or valueWidget',
+       );
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: color ?? colorScheme.primary),
+          const SizedBox(height: AppSpacing.sm),
+          valueWidget ??
+              Text(
+                value!,
+                style: Theme.of(context).textTheme.headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: context.appColors.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ViewsBarChart extends StatelessWidget {
+  final List<_DailyViews> data;
+  const _ViewsBarChart({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final colors = context.appColors;
+    final maxViews = data
+        .map((d) => d.views)
+        .fold<int>(0, (a, b) => a > b ? a : b);
+    const chartHeight = 120.0;
+    return SizedBox(
+      height: chartHeight + 44,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: data.map((day) {
+          final fraction = maxViews == 0 ? 0.0 : day.views / maxViews;
+          final barHeight = (fraction * chartHeight)
+              .clamp(4.0, chartHeight)
+              .toDouble();
+          return Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Text(
+                    '${day.views}',
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Container(
+                    height: barHeight,
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary,
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(6),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    _shortWeekday(day.date),
+                    style: Theme.of(context).textTheme.labelSmall
+                        ?.copyWith(color: colors.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
