@@ -246,7 +246,7 @@ IconData alertTypeIcon(String type) {
     case 'closure':
       return Icons.block_outlined;
     case 'relocation':
-      return Icons.moved_location_outlined;
+      return Icons.edit_location_alt_outlined;
     case 'special_offer':
       return Icons.local_offer_outlined;
     default:

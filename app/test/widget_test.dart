@@ -9,6 +9,7 @@ void main() {
     await tester.pumpWidget(const MicroLinkApp());
     expect(find.text('MicroLink'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 800));
+    await tester.pumpAndSettle(); // let the splash -> login page transition finish
     expect(find.textContaining('Welcome'), findsWidgets);
   });
 }
