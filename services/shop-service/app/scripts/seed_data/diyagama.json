@@ -1,0 +1,1059 @@
+[
+  {
+    "name": "Diyagama Super",
+    "category": "grocery",
+    "description": "Neighbourhood supermarket stocking daily essentials, fresh produce and household goods.",
+    "address": "High Level Road, Diyagama, Homagama",
+    "latitude": 6.8402,
+    "longitude": 80.0105,
+    "phone": "011-2745210",
+    "opening_time": "06:30",
+    "closing_time": "22:00",
+    "products": [
+      {
+        "name": "White Raw Rice 5kg",
+        "price": 1250,
+        "stock_quantity": 40,
+        "category": "grocery"
+      },
+      {
+        "name": "White Sugar 1kg",
+        "price": 320,
+        "stock_quantity": 3,
+        "category": "grocery"
+      },
+      {
+        "name": "Red Dhal 1kg",
+        "price": 640,
+        "stock_quantity": 0,
+        "category": "grocery"
+      },
+      {
+        "name": "Coconut Oil 1L",
+        "price": 1180,
+        "stock_quantity": 25,
+        "category": "grocery"
+      },
+      {
+        "name": "Full Cream Milk Powder 400g",
+        "price": 1290,
+        "stock_quantity": 30,
+        "category": "grocery"
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      5,
+      5,
+      4
+    ]
+  },
+  {
+    "name": "Homagama Fresh Mart",
+    "category": "grocery",
+    "description": "Grocery and fresh vegetable outlet near the Diyagama junction.",
+    "address": "Athurugiriya Road, Diyagama",
+    "latitude": 6.8388,
+    "longitude": 80.0142,
+    "phone": "011-2896344",
+    "opening_time": "07:00",
+    "closing_time": "21:00",
+    "products": [
+      {
+        "name": "Samba Rice 1kg",
+        "price": 290,
+        "category": "grocery",
+        "stock_quantity": 3
+      },
+      {
+        "name": "Wheat Flour 1kg",
+        "price": 260,
+        "category": "grocery",
+        "stock_quantity": 18
+      },
+      {
+        "name": "Tea Leaves 200g",
+        "price": 480,
+        "category": "grocery",
+        "stock_quantity": 0
+      },
+      {
+        "name": "Eggs (10 pack)",
+        "price": 520,
+        "category": "grocery",
+        "stock_quantity": 45
+      },
+      {
+        "name": "Bread Loaf",
+        "price": 150,
+        "category": "grocery",
+        "stock_quantity": 30
+      }
+    ],
+    "delivery_available": false,
+    "ratings": [
+      5,
+      4,
+      4,
+      3
+    ]
+  },
+  {
+    "name": "Sarasavi Stores",
+    "category": "grocery",
+    "description": "Small family-run grocery and general store.",
+    "address": "Pitipana North, Homagama",
+    "latitude": 6.8365,
+    "longitude": 80.0089,
+    "opening_time": "06:00",
+    "closing_time": "21:30",
+    "products": [
+      {
+        "name": "Samba Rice 1kg",
+        "price": 290,
+        "category": "grocery",
+        "stock_quantity": 18
+      },
+      {
+        "name": "Wheat Flour 1kg",
+        "price": 260,
+        "category": "grocery",
+        "stock_quantity": 0
+      },
+      {
+        "name": "Tea Leaves 200g",
+        "price": 480,
+        "category": "grocery",
+        "stock_quantity": 45
+      },
+      {
+        "name": "Eggs (10 pack)",
+        "price": 520,
+        "category": "grocery",
+        "stock_quantity": 30
+      },
+      {
+        "name": "Bread Loaf",
+        "price": 150,
+        "category": "grocery",
+        "stock_quantity": 3
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      4,
+      4,
+      5,
+      3,
+      2
+    ],
+    "status": "closed"
+  },
+  {
+    "name": "New Diyagama Bakers",
+    "category": "bakery",
+    "description": "Fresh bread, buns and short-eats baked through the day.",
+    "address": "High Level Road, Diyagama",
+    "latitude": 6.8409,
+    "longitude": 80.0098,
+    "phone": "011-2745867",
+    "opening_time": "05:30",
+    "closing_time": "20:00",
+    "products": [
+      {
+        "name": "Kimbula Banis",
+        "price": 70,
+        "stock_quantity": 80,
+        "category": "bakery"
+      },
+      {
+        "name": "Fish Bun",
+        "price": 90,
+        "stock_quantity": 3,
+        "category": "bakery"
+      },
+      {
+        "name": "Seeni Sambol Bun",
+        "price": 80,
+        "stock_quantity": 0,
+        "category": "bakery"
+      },
+      {
+        "name": "White Bread Loaf",
+        "price": 145,
+        "stock_quantity": 50,
+        "category": "bakery"
+      },
+      {
+        "name": "Butter Cake (250g)",
+        "price": 480,
+        "stock_quantity": 20,
+        "category": "bakery"
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      5,
+      4,
+      4
+    ]
+  },
+  {
+    "name": "Perera Bake House",
+    "category": "bakery",
+    "description": "Bakery and tea room serving hoppers and string hoppers in the morning.",
+    "address": "Katuwana Road, Homagama",
+    "latitude": 6.8351,
+    "longitude": 80.0064,
+    "opening_time": "06:00",
+    "closing_time": "19:00",
+    "products": [
+      {
+        "name": "Fish Bun",
+        "price": 90,
+        "category": "bakery",
+        "stock_quantity": 45
+      },
+      {
+        "name": "Egg Roll",
+        "price": 110,
+        "category": "bakery",
+        "stock_quantity": 30
+      },
+      {
+        "name": "Chocolate Cake Slice",
+        "price": 260,
+        "category": "bakery",
+        "stock_quantity": 3
+      },
+      {
+        "name": "Milk Bread",
+        "price": 160,
+        "category": "bakery",
+        "stock_quantity": 18
+      },
+      {
+        "name": "Butter Biscuits 200g",
+        "price": 240,
+        "category": "bakery",
+        "stock_quantity": 0
+      }
+    ],
+    "delivery_available": false,
+    "ratings": [
+      5,
+      5,
+      4,
+      4
+    ]
+  },
+  {
+    "name": "Diyagama Pharmacy",
+    "category": "pharmacy",
+    "description": "Community pharmacy with prescription medicines and basic health supplies.",
+    "address": "High Level Road, Diyagama",
+    "latitude": 6.8414,
+    "longitude": 80.0112,
+    "phone": "011-2745091",
+    "opening_time": "08:00",
+    "closing_time": "22:00",
+    "products": [
+      {
+        "name": "Paracetamol 500mg (10 tablets)",
+        "price": 45,
+        "stock_quantity": 100,
+        "category": "pharmacy"
+      },
+      {
+        "name": "Vitamin C 500mg (30 tablets)",
+        "price": 620,
+        "stock_quantity": 3,
+        "category": "pharmacy"
+      },
+      {
+        "name": "Antiseptic Liquid 100ml",
+        "price": 390,
+        "stock_quantity": 0,
+        "category": "pharmacy"
+      },
+      {
+        "name": "Surgical Face Mask (10 pack)",
+        "price": 250,
+        "stock_quantity": 45,
+        "category": "pharmacy"
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      5,
+      4,
+      4,
+      3
+    ]
+  },
+  {
+    "name": "MediCare Homagama",
+    "category": "pharmacy",
+    "description": "Pharmacy near the Homagama town clinic area.",
+    "address": "Station Road, Homagama",
+    "latitude": 6.8377,
+    "longitude": 80.0051,
+    "phone": "011-2855700",
+    "opening_time": "08:30",
+    "closing_time": "21:00",
+    "products": [
+      {
+        "name": "Paracetamol 500mg (10)",
+        "price": 60,
+        "category": "medicine",
+        "stock_quantity": 3
+      },
+      {
+        "name": "Vitamin C 500mg (30)",
+        "price": 780,
+        "category": "supplement",
+        "stock_quantity": 18
+      },
+      {
+        "name": "Hand Sanitizer 100ml",
+        "price": 320,
+        "category": "hygiene",
+        "stock_quantity": 0
+      },
+      {
+        "name": "Face Masks (10)",
+        "price": 250,
+        "category": "hygiene",
+        "stock_quantity": 45
+      },
+      {
+        "name": "Bandage Roll",
+        "price": 120,
+        "category": "first-aid",
+        "stock_quantity": 30
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      4,
+      4,
+      5
+    ]
+  },
+  {
+    "name": "City Pharmacy Diyagama",
+    "category": "pharmacy",
+    "description": "Late-night pharmacy on the Athurugiriya Road side of Diyagama.",
+    "address": "Athurugiriya Road, Diyagama",
+    "latitude": 6.8425,
+    "longitude": 80.0131,
+    "opening_time": "08:00",
+    "closing_time": "23:30",
+    "products": [
+      {
+        "name": "Paracetamol 500mg (10)",
+        "price": 60,
+        "category": "medicine",
+        "stock_quantity": 18
+      },
+      {
+        "name": "Vitamin C 500mg (30)",
+        "price": 780,
+        "category": "supplement",
+        "stock_quantity": 0
+      },
+      {
+        "name": "Hand Sanitizer 100ml",
+        "price": 320,
+        "category": "hygiene",
+        "stock_quantity": 45
+      },
+      {
+        "name": "Face Masks (10)",
+        "price": 250,
+        "category": "hygiene",
+        "stock_quantity": 30
+      },
+      {
+        "name": "Bandage Roll",
+        "price": 120,
+        "category": "first-aid",
+        "stock_quantity": 3
+      }
+    ],
+    "delivery_available": false,
+    "ratings": [
+      5,
+      4,
+      4,
+      4
+    ]
+  },
+  {
+    "name": "Diyagama Hotel & Restaurant",
+    "category": "restaurant",
+    "description": "Rice and curry, kottu and short-eats. Dine-in and takeaway.",
+    "address": "High Level Road, Diyagama",
+    "latitude": 6.8406,
+    "longitude": 80.0102,
+    "phone": "011-2745500",
+    "opening_time": "06:00",
+    "closing_time": "23:00",
+    "products": [
+      {
+        "name": "Rice & Curry (Chicken)",
+        "price": 480,
+        "stock_quantity": 100,
+        "category": "restaurant"
+      },
+      {
+        "name": "Chicken Kottu Roti",
+        "price": 650,
+        "stock_quantity": 3,
+        "category": "restaurant"
+      },
+      {
+        "name": "Egg Fried Rice",
+        "price": 520,
+        "stock_quantity": 0,
+        "category": "restaurant"
+      },
+      {
+        "name": "Plain Tea",
+        "price": 90,
+        "stock_quantity": 200,
+        "category": "restaurant"
+      },
+      {
+        "name": "String Hoppers (10)",
+        "price": 150,
+        "stock_quantity": 60,
+        "category": "restaurant"
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      5,
+      5,
+      4,
+      4,
+      4
+    ]
+  },
+  {
+    "name": "Ceylon Curry House",
+    "category": "restaurant",
+    "description": "Sri Lankan lunch packets and evening hoppers.",
+    "address": "Athurugiriya Road, Diyagama",
+    "latitude": 6.8391,
+    "longitude": 80.0155,
+    "opening_time": "10:00",
+    "closing_time": "22:30",
+    "products": [
+      {
+        "name": "Chicken Fried Rice",
+        "price": 950,
+        "category": "main",
+        "stock_quantity": 45
+      },
+      {
+        "name": "Egg Kottu",
+        "price": 780,
+        "category": "main",
+        "stock_quantity": 30
+      },
+      {
+        "name": "Vegetable Noodles",
+        "price": 720,
+        "category": "main",
+        "stock_quantity": 3
+      },
+      {
+        "name": "Lime Juice",
+        "price": 250,
+        "category": "drink",
+        "stock_quantity": 18
+      },
+      {
+        "name": "Watalappan",
+        "price": 320,
+        "category": "dessert",
+        "stock_quantity": 0
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      5,
+      4,
+      4
+    ],
+    "status": "temporarily_closed",
+    "status_reason": "Closed for renovation - back next week"
+  },
+  {
+    "name": "Pizza Corner Homagama",
+    "category": "restaurant",
+    "description": "Pizza, burgers and submarines for delivery around Homagama.",
+    "address": "High Level Road, Homagama",
+    "latitude": 6.836,
+    "longitude": 80.0038,
+    "phone": "011-2857123",
+    "opening_time": "11:00",
+    "closing_time": "23:00",
+    "products": [
+      {
+        "name": "Chicken Fried Rice",
+        "price": 950,
+        "category": "main",
+        "stock_quantity": 30
+      },
+      {
+        "name": "Egg Kottu",
+        "price": 780,
+        "category": "main",
+        "stock_quantity": 3
+      },
+      {
+        "name": "Vegetable Noodles",
+        "price": 720,
+        "category": "main",
+        "stock_quantity": 18
+      },
+      {
+        "name": "Lime Juice",
+        "price": 250,
+        "category": "drink",
+        "stock_quantity": 0
+      },
+      {
+        "name": "Watalappan",
+        "price": 320,
+        "category": "dessert",
+        "stock_quantity": 45
+      }
+    ],
+    "delivery_available": false,
+    "ratings": [
+      4,
+      4,
+      5,
+      3
+    ]
+  },
+  {
+    "name": "Green Leaf Cafe",
+    "category": "restaurant",
+    "description": "Coffee, tea and light meals.",
+    "address": "Pitipana Road, Homagama",
+    "latitude": 6.8339,
+    "longitude": 80.0083,
+    "opening_time": "07:30",
+    "closing_time": "21:00",
+    "products": [
+      {
+        "name": "Milk Coffee",
+        "price": 260,
+        "stock_quantity": 150,
+        "category": "restaurant"
+      },
+      {
+        "name": "Iced Milo",
+        "price": 300,
+        "stock_quantity": 3,
+        "category": "restaurant"
+      },
+      {
+        "name": "Cheese Sandwich",
+        "price": 380,
+        "stock_quantity": 0,
+        "category": "restaurant"
+      },
+      {
+        "name": "Vegetable Roti",
+        "price": 120,
+        "stock_quantity": 60,
+        "category": "restaurant"
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      5,
+      4,
+      4,
+      4
+    ]
+  },
+  {
+    "name": "Diyagama Electronics",
+    "category": "electronics",
+    "description": "Small electricals, bulbs, wiring accessories and phone accessories.",
+    "address": "High Level Road, Diyagama",
+    "latitude": 6.8417,
+    "longitude": 80.0119,
+    "phone": "011-2745778",
+    "opening_time": "09:00",
+    "closing_time": "19:30",
+    "products": [
+      {
+        "name": "LED Bulb 9W",
+        "price": 420,
+        "stock_quantity": 50,
+        "category": "electronics"
+      },
+      {
+        "name": "Extension Cord 5m (3 socket)",
+        "price": 1350,
+        "stock_quantity": 3,
+        "category": "electronics"
+      },
+      {
+        "name": "USB-C Phone Charger",
+        "price": 1650,
+        "stock_quantity": 0,
+        "category": "electronics"
+      },
+      {
+        "name": "AA Batteries (4 pack)",
+        "price": 480,
+        "stock_quantity": 40,
+        "category": "electronics"
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      5,
+      5,
+      4
+    ]
+  },
+  {
+    "name": "TechZone Homagama",
+    "category": "electronics",
+    "description": "Mobile phones, computer accessories and repairs.",
+    "address": "Station Road, Homagama",
+    "latitude": 6.8372,
+    "longitude": 80.0072,
+    "opening_time": "09:30",
+    "closing_time": "19:00",
+    "products": [
+      {
+        "name": "USB Charging Cable",
+        "price": 650,
+        "category": "accessory",
+        "stock_quantity": 0
+      },
+      {
+        "name": "Wireless Mouse",
+        "price": 1850,
+        "category": "accessory",
+        "stock_quantity": 45
+      },
+      {
+        "name": "Phone Power Bank 10000mAh",
+        "price": 4200,
+        "category": "accessory",
+        "stock_quantity": 30
+      },
+      {
+        "name": "LED Bulb 9W",
+        "price": 380,
+        "category": "lighting",
+        "stock_quantity": 3
+      },
+      {
+        "name": "Earphones",
+        "price": 950,
+        "category": "accessory",
+        "stock_quantity": 18
+      }
+    ],
+    "delivery_available": false,
+    "ratings": [
+      5,
+      4,
+      4,
+      3
+    ]
+  },
+  {
+    "name": "Fashion Hub Diyagama",
+    "category": "clothing",
+    "description": "Ready-made clothing for men, women and children.",
+    "address": "Athurugiriya Road, Diyagama",
+    "latitude": 6.8431,
+    "longitude": 80.0139,
+    "opening_time": "09:00",
+    "closing_time": "20:00",
+    "products": [
+      {
+        "name": "Cotton T-Shirt",
+        "price": 1450,
+        "category": "men",
+        "stock_quantity": 45
+      },
+      {
+        "name": "Ladies Frock",
+        "price": 2950,
+        "category": "women",
+        "stock_quantity": 30
+      },
+      {
+        "name": "School Uniform Shirt",
+        "price": 1650,
+        "category": "school",
+        "stock_quantity": 3
+      },
+      {
+        "name": "Sarong",
+        "price": 1900,
+        "category": "men",
+        "stock_quantity": 18
+      },
+      {
+        "name": "Cotton Socks (3 pack)",
+        "price": 750,
+        "category": "accessory",
+        "stock_quantity": 0
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      4,
+      4,
+      5,
+      3,
+      2
+    ]
+  },
+  {
+    "name": "Sarath Textiles",
+    "category": "clothing",
+    "description": "Fabric, school uniforms and tailoring.",
+    "address": "High Level Road, Homagama",
+    "latitude": 6.8358,
+    "longitude": 80.0047,
+    "opening_time": "09:00",
+    "closing_time": "19:30",
+    "products": [
+      {
+        "name": "Cotton T-Shirt",
+        "price": 1450,
+        "category": "men",
+        "stock_quantity": 30
+      },
+      {
+        "name": "Ladies Frock",
+        "price": 2950,
+        "category": "women",
+        "stock_quantity": 3
+      },
+      {
+        "name": "School Uniform Shirt",
+        "price": 1650,
+        "category": "school",
+        "stock_quantity": 18
+      },
+      {
+        "name": "Sarong",
+        "price": 1900,
+        "category": "men",
+        "stock_quantity": 0
+      },
+      {
+        "name": "Cotton Socks (3 pack)",
+        "price": 750,
+        "category": "accessory",
+        "stock_quantity": 45
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      5,
+      4,
+      4
+    ]
+  },
+  {
+    "name": "Diyagama Hardware",
+    "category": "hardware",
+    "description": "Building materials, plumbing, paint and tools.",
+    "address": "High Level Road, Diyagama",
+    "latitude": 6.8421,
+    "longitude": 80.0124,
+    "phone": "011-2745432",
+    "opening_time": "08:00",
+    "closing_time": "18:30",
+    "products": [
+      {
+        "name": "Cement (50kg bag)",
+        "price": 2450,
+        "stock_quantity": 60,
+        "category": "hardware"
+      },
+      {
+        "name": "PVC Pipe 1in (per foot)",
+        "price": 95,
+        "stock_quantity": 3,
+        "category": "hardware"
+      },
+      {
+        "name": "Wall Paint 4L (White)",
+        "price": 4200,
+        "stock_quantity": 0,
+        "category": "hardware"
+      },
+      {
+        "name": "Wire Nails 1kg",
+        "price": 520,
+        "stock_quantity": 40,
+        "category": "hardware"
+      }
+    ],
+    "delivery_available": false,
+    "ratings": [
+      5,
+      5,
+      4,
+      4
+    ]
+  },
+  {
+    "name": "Homagama Builders Depot",
+    "category": "hardware",
+    "description": "Sand, bricks, roofing sheets and heavy hardware.",
+    "address": "Katuwana Road, Homagama",
+    "latitude": 6.8344,
+    "longitude": 80.0069,
+    "opening_time": "08:00",
+    "closing_time": "18:00",
+    "products": [
+      {
+        "name": "Cement Bag 50kg",
+        "price": 1950,
+        "category": "building",
+        "stock_quantity": 18
+      },
+      {
+        "name": "PVC Pipe 1in (3m)",
+        "price": 1100,
+        "category": "plumbing",
+        "stock_quantity": 0
+      },
+      {
+        "name": "Paint 1L White",
+        "price": 2450,
+        "category": "paint",
+        "stock_quantity": 45
+      },
+      {
+        "name": "Claw Hammer",
+        "price": 1650,
+        "category": "tools",
+        "stock_quantity": 30
+      },
+      {
+        "name": "Nails 1kg",
+        "price": 420,
+        "category": "building",
+        "stock_quantity": 3
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      5,
+      4,
+      4,
+      3
+    ]
+  },
+  {
+    "name": "Sisila Book Shop",
+    "category": "stationery",
+    "description": "School and office stationery, books and photocopying.",
+    "address": "High Level Road, Diyagama",
+    "latitude": 6.8404,
+    "longitude": 80.0094,
+    "phone": "011-2745018",
+    "opening_time": "08:00",
+    "closing_time": "20:00",
+    "products": [
+      {
+        "name": "Exercise Book 200 pages",
+        "price": 180,
+        "stock_quantity": 120,
+        "category": "stationery"
+      },
+      {
+        "name": "Ballpoint Pen (Blue)",
+        "price": 40,
+        "stock_quantity": 3,
+        "category": "stationery"
+      },
+      {
+        "name": "A4 Paper Ream (80gsm)",
+        "price": 1750,
+        "stock_quantity": 0,
+        "category": "stationery"
+      },
+      {
+        "name": "Geometry Box",
+        "price": 420,
+        "stock_quantity": 30,
+        "category": "stationery"
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      4,
+      4,
+      5
+    ]
+  },
+  {
+    "name": "Lakmedura Stationers",
+    "category": "stationery",
+    "description": "Stationery, greeting cards and gift items.",
+    "address": "Pitipana North, Homagama",
+    "latitude": 6.8336,
+    "longitude": 80.0078,
+    "opening_time": "08:30",
+    "closing_time": "19:00",
+    "products": [
+      {
+        "name": "A4 Paper Ream",
+        "price": 1450,
+        "category": "paper",
+        "stock_quantity": 45
+      },
+      {
+        "name": "Blue Pen (10 pack)",
+        "price": 300,
+        "category": "writing",
+        "stock_quantity": 30
+      },
+      {
+        "name": "Exercise Book 80pg",
+        "price": 150,
+        "category": "books",
+        "stock_quantity": 3
+      },
+      {
+        "name": "Geometry Box",
+        "price": 650,
+        "category": "school",
+        "stock_quantity": 18
+      },
+      {
+        "name": "Stapler",
+        "price": 480,
+        "category": "office",
+        "stock_quantity": 0
+      }
+    ],
+    "delivery_available": false,
+    "ratings": [
+      5,
+      4,
+      4,
+      4
+    ]
+  },
+  {
+    "name": "Diyagama General Store",
+    "category": "other",
+    "description": "Mixed general store: household items, plastics, small gifts and phone reloads.",
+    "address": "Athurugiriya Road, Diyagama",
+    "latitude": 6.8428,
+    "longitude": 80.0133,
+    "opening_time": "08:00",
+    "closing_time": "20:30",
+    "products": [
+      {
+        "name": "Phone Charger",
+        "price": 850,
+        "category": "accessory",
+        "stock_quantity": 30
+      },
+      {
+        "name": "Torch Light",
+        "price": 950,
+        "category": "general",
+        "stock_quantity": 3
+      },
+      {
+        "name": "Umbrella",
+        "price": 1450,
+        "category": "general",
+        "stock_quantity": 18
+      },
+      {
+        "name": "Plastic Bucket",
+        "price": 550,
+        "category": "household",
+        "stock_quantity": 0
+      },
+      {
+        "name": "Mosquito Coil (10)",
+        "price": 220,
+        "category": "household",
+        "stock_quantity": 45
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      5,
+      5,
+      4,
+      4,
+      4
+    ]
+  },
+  {
+    "name": "Homagama Mobile & Accessories",
+    "category": "other",
+    "description": "Phone accessories, covers, reloads and bill payments.",
+    "address": "Station Road, Homagama",
+    "latitude": 6.8368,
+    "longitude": 80.0058,
+    "opening_time": "09:00",
+    "closing_time": "20:00",
+    "products": [
+      {
+        "name": "Phone Charger",
+        "price": 850,
+        "category": "accessory",
+        "stock_quantity": 3
+      },
+      {
+        "name": "Torch Light",
+        "price": 950,
+        "category": "general",
+        "stock_quantity": 18
+      },
+      {
+        "name": "Umbrella",
+        "price": 1450,
+        "category": "general",
+        "stock_quantity": 0
+      },
+      {
+        "name": "Plastic Bucket",
+        "price": 550,
+        "category": "household",
+        "stock_quantity": 45
+      },
+      {
+        "name": "Mosquito Coil (10)",
+        "price": 220,
+        "category": "household",
+        "stock_quantity": 30
+      }
+    ],
+    "delivery_available": true,
+    "ratings": [
+      5,
+      4,
+      4
+    ]
+  }
+]
