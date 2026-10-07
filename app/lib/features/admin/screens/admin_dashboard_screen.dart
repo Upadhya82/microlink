@@ -10,6 +10,7 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
+import 'admin_users_tab.dart';
 
 /// The Admin Dashboard: independently-loading tabs backed by admin-service
 /// (`/admin/*` and `/ads/*` through the gateway) and crowdsource-service
@@ -28,7 +29,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return DefaultTabController(
-      length: 7,
+      length: 8,
       child: Scaffold(
         appBar: AppBar(
           title: Row(
@@ -49,6 +50,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700),
             tabs: const [
               Tab(text: 'Overview', icon: Icon(Icons.insights_outlined)),
+              Tab(text: 'Users', icon: Icon(Icons.verified_user_outlined)),
               Tab(text: 'Activity Log', icon: Icon(Icons.history)),
               Tab(text: 'Complaints', icon: Icon(Icons.report_problem_outlined)),
               Tab(text: 'Shop Reports', icon: Icon(Icons.storefront_outlined)),
@@ -61,6 +63,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         body: const TabBarView(
           children: [
             _OverviewTab(),
+            AdminUsersTab(),
             _ActivityLogTab(),
             _ComplaintsTab(),
             _ShopReportsTab(),
