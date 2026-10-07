@@ -4,6 +4,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/models/order.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/session_manager.dart';
 import '../../../core/theme/app_colors_extension.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/app_router.dart';
@@ -51,6 +52,11 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
     }
   }
 
+  Future<void> _openRequestDelivery() async {
+    await Navigator.pushNamed(context, AppRoutes.requestDelivery);
+    if (mounted) _load();
+  }
+
   (Color, Color) _statusColors(BuildContext context, String status) {
     final colorScheme = Theme.of(context).colorScheme;
     final colors = context.appColors;
@@ -66,6 +72,14 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('My Orders')),
+      // SRS REQ-DELIV-1: customers can start a delivery request from here.
+      floatingActionButton: SessionManager.instance.isCustomer
+          ? FloatingActionButton.extended(
+              onPressed: _openRequestDelivery,
+              icon: const Icon(Icons.add_location_alt_outlined),
+              label: const Text('Request delivery'),
+            )
+          : null,
       body: RefreshIndicator(
         onRefresh: _load,
         child: AsyncStateView<List<DeliveryOrder>>(
@@ -73,7 +87,7 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
           onRetry: _load,
           isEmpty: (data) => data.isEmpty,
           emptyTitle: 'No orders yet',
-          emptyMessage: 'Orders you place with shops will show up here.',
+          emptyMessage: 'Delivery requests you make will show up here.',
           emptyIcon: Icons.receipt_long_outlined,
           loadingSkeleton: const SkeletonList(),
           builder: (context, orders) => ListView.separated(
@@ -109,7 +123,9 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
                           ),
                           const SizedBox(height: AppSpacing.sm),
                           Text(
-                            'Rs. ${order.totalAmount.toStringAsFixed(2)}',
+                            order.totalAmount > 0
+                                ? 'Offered fee: Rs. ${order.totalAmount.toStringAsFixed(2)}'
+                                : 'Fee to be agreed with the agent',
                             style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
                           ),
                         ],

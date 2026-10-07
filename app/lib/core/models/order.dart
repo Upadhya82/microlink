@@ -1,6 +1,11 @@
 /// Mirrors delivery-service's `OrderResponse` / `OrderDetailResponse` schemas.
 /// `items` is intentionally freeform (list of `{name, quantity, price}`-ish
 /// maps) since the backend stores it as opaque JSON.
+///
+/// SRS REQ-DELIV-3: there is no cart and no payment. `totalAmount` is only the
+/// fee the customer OFFERS the agent (0 = "to be agreed"), settled outside the
+/// app. The pickup / item-description / ETA / rating fields are all optional
+/// so older orders still parse.
 class DeliveryOrder {
   final String id;
   final String customerId;
@@ -16,6 +21,15 @@ class DeliveryOrder {
   final DateTime updatedAt;
   final List<OrderEvent> events;
   final double? distanceKm;
+  final String? pickupAddress;
+  final double? pickupLat;
+  final double? pickupLng;
+  final String? itemDescription;
+  final DateTime? promisedBy;
+  final int? agentEtaMinutes;
+  final int? rating;
+  final String? ratingComment;
+  final double? tripDistanceKm;
 
   const DeliveryOrder({
     required this.id,
@@ -32,6 +46,15 @@ class DeliveryOrder {
     required this.updatedAt,
     this.events = const [],
     this.distanceKm,
+    this.pickupAddress,
+    this.pickupLat,
+    this.pickupLng,
+    this.itemDescription,
+    this.promisedBy,
+    this.agentEtaMinutes,
+    this.rating,
+    this.ratingComment,
+    this.tripDistanceKm,
   });
 
   factory DeliveryOrder.fromJson(Map<String, dynamic> json) {
@@ -54,6 +77,17 @@ class DeliveryOrder {
           .map((e) => OrderEvent.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList(),
       distanceKm: (json['distance_km'] as num?)?.toDouble(),
+      pickupAddress: json['pickup_address'] as String?,
+      pickupLat: (json['pickup_lat'] as num?)?.toDouble(),
+      pickupLng: (json['pickup_lng'] as num?)?.toDouble(),
+      itemDescription: json['item_description'] as String?,
+      promisedBy: json['promised_by'] == null
+          ? null
+          : DateTime.parse(json['promised_by'] as String),
+      agentEtaMinutes: json['agent_eta_minutes'] as int?,
+      rating: json['rating'] as int?,
+      ratingComment: json['rating_comment'] as String?,
+      tripDistanceKm: (json['trip_distance_km'] as num?)?.toDouble(),
     );
   }
 }

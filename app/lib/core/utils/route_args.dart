@@ -37,3 +37,21 @@ class SubmitAdArgs {
   final String? shopName;
   const SubmitAdArgs({this.shopId, this.shopName});
 }
+
+/// Optional context for the "Request Delivery Assistance" screen (SRS
+/// REQ-DELIV-1/2). When it is opened from a shop, the shop and its address are
+/// pre-filled as the (editable) pickup point.
+class RequestDeliveryArgs {
+  final String? shopId;
+  final String? shopName;
+  final String? pickupAddress;
+  final double? pickupLat;
+  final double? pickupLng;
+  const RequestDeliveryArgs({
+    this.shopId,
+    this.shopName,
+    this.pickupAddress,
+    this.pickupLat,
+    this.pickupLng,
+  });
+}
