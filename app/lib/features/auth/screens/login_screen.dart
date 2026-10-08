@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/constants/app_constants.dart';
-import '../../../../core/network/api_client.dart';
-import '../../../../core/utils/app_router.dart';
-import '../../../../core/utils/validators.dart';
-import 'register_screen.dart';
+import '../../../core/constants/app_constants.dart';
+import '../../../core/network/api_client.dart';
+import '../../../core/network/api_exception.dart';
+import '../../../core/network/session_manager.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/utils/validators.dart';
+import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/app_text_field.dart';
 
-/// Login screen (SRS REQ-AUTH-2). Talks to user-service through the
-/// API Gateway at AppConstants.usersPath + '/login'.
+/// The Login screen: email + password sign-in against `POST /auth/login`.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -19,40 +21,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  bool _isLoading = false;
-  String? _errorMessage;
 
-  Future<void> _login() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    try {
-      final response = await ApiClient.instance.post(
-        '${AppConstants.usersPath}/login',
-        data: {
-          'email': _emailController.text.trim(),
-          'password': _passwordController.text,
-        },
-      );
-
-      final data = response.data as Map<String, dynamic>;
-      final token = data['access_token'] as String?;
-      if (token != null) {
-        await ApiClient.instance.saveToken(token);
-      }
-
-      if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed(AppRoutes.home);
-    } catch (e) {
-      setState(() => _errorMessage =
-          'Could not log in. Check your email/password and that the backend is running.');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
+  bool _obscurePassword = true;
+  bool _isSubmitting = false;
 
   @override
   void dispose() {
@@ -61,56 +32,116 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  Future<void> _submit() async {
+    final formState = _formKey.currentState;
+    if (formState == null || !formState.validate()) return;
+
+    setState(() => _isSubmitting = true);
+
+    try {
+      final response = await ApiClient.instance.post(
+        '/auth/login',
+        body: {
+          'email': _emailController.text.trim(),
+          'password': _passwordController.text,
+        },
+      ) as Map<String, dynamic>;
+
+      final token = response['access_token'] as String;
+      final user = response['user'] as Map<String, dynamic>;
+
+      await SessionManager.instance.saveSession(
+        token: token,
+        userId: user['id'] as String,
+        role: user['role'] as String,
+        name: user['full_name'] as String,
+      );
+
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.home, (route) => false);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Login')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Welcome back to ${AppConstants.appName}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 24),
-              TextFormField(
-                controller: _emailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(labelText: 'Email', prefixIcon: Icon(Icons.email)),
-                validator: Validators.email,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock)),
-                validator: (v) => Validators.required(v, fieldName: 'Password'),
-              ),
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 12),
-                Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
-              ],
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _login,
-                child: _isLoading
-                    ? const SizedBox(
-                        height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Log In'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const RegisterScreen()),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl, vertical: AppSpacing.xxxl),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: AppSpacing.xxl),
+                Icon(
+                  Icons.storefront_rounded,
+                  size: 72,
+                  color: colorScheme.primary,
                 ),
-                child: const Text("Don't have an account? Register"),
-              ),
-            ],
+                const SizedBox(height: AppSpacing.lg),
+                Text(
+                  AppConstants.appName,
+                  textAlign: TextAlign.center,
+                  style: textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  'Welcome back! Log in to continue.',
+                  textAlign: TextAlign.center,
+                  style: textTheme.bodyMedium,
+                ),
+                const SizedBox(height: AppSpacing.xxxl),
+                AppTextField(
+                  controller: _emailController,
+                  label: 'Email',
+                  keyboardType: TextInputType.emailAddress,
+                  prefixIcon: Icons.email_outlined,
+                  validator: Validators.email,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                AppTextField(
+                  controller: _passwordController,
+                  label: 'Password',
+                  obscureText: _obscurePassword,
+                  prefixIcon: Icons.lock_outline,
+                  validator: (value) => Validators.required(value, field: 'Password'),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                    ),
+                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xxl),
+                AppButton(
+                  label: 'Log In',
+                  isLoading: _isSubmitting,
+                  onPressed: _isSubmitting ? null : _submit,
+                ),
+                const SizedBox(height: AppSpacing.xl),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text("Don't have an account?", style: textTheme.bodyMedium),
+                    TextButton(
+                      onPressed: _isSubmitting
+                          ? null
+                          : () => Navigator.pushNamed(context, AppRoutes.register),
+                      child: const Text('Sign up'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

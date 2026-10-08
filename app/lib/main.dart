@@ -1,2 +1,7 @@
-// TODO: implement main.dart
-// (structure-only placeholder - see the full version for the real code)
+import 'package:flutter/material.dart';
+
+import 'app.dart';
+
+void main() {
+  runApp(const MicroLinkApp());
+}
