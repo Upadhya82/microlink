@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app import trust
 from app.auth import CurrentUser, get_current_user, require_admin
 from app.database import get_db
-from app.event_bus import publish_event
+from app.event_bus import notify_users, publish_event
 from app.geo import haversine_km
+from app.images import ImageRejected, process_image
 from app.models import RoadConditionReport, RoadConditionType, RoadReportStatus
 from app.schemas import (
     RoadConditionReportCreateRequest,
@@ -101,4 +102,64 @@ async def update_road_report_status(
     await publish_event(
         "road_report.status_changed", {"report_id": report.id, "status": report.status.value}
     )
+    approved = payload.status in ("verified", "resolved")
+    await notify_users(
+        [report.reporter_id],
+        "Your road report was published" if approved else "Your road report was reviewed",
+        (
+            "Thanks -- other drivers can now see it on the map."
+            if approved
+            else "An admin reviewed your report and did not publish it."
+        ),
+        kind="report",
+        link={"route": "report", "id": report.id},
+    )
     return report
+
+
+@router.post("/road-reports/{report_id}/photo", response_model=RoadConditionReportResponse)
+async def upload_road_report_photo(
+    report_id: str,
+    file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """REQ-CROWD-4: attach the optional photo to a road report.
+
+    A separate call rather than a multipart create, so the report is saved
+    the moment the user submits it -- a failed photo upload on a bad rural
+    connection must not lose the report itself.
+    """
+    report = db.get(RoadConditionReport, report_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Road report not found")
+    if report.reporter_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only add a photo to your own report.",
+        )
+
+    raw = await file.read()
+    try:
+        processed = process_image(raw, file.content_type)
+    except ImageRejected as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    report.photo = processed
+    report.has_photo = True
+    db.commit()
+    db.refresh(report)
+    return report
+
+
+@router.get("/road-reports/{report_id}/photo")
+async def get_road_report_photo(report_id: str, db: Session = Depends(get_db)):
+    """Public: approved road reports are shown to every driver on the map."""
+    report = db.get(RoadConditionReport, report_id)
+    if report is None or not report.has_photo or report.photo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No photo for this report")
+    return Response(
+        content=report.photo,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
