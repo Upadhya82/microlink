@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     # docker-compose passes a full DATABASE_URL; when set it wins over the parts above.
     database_url_override: str | None = Field(default=None, alias="DATABASE_URL")
+    redis_url: str | None = Field(default=None, alias="REDIS_URL")
 
     @property
     def database_url(self) -> str:
@@ -35,3 +36,17 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def _apply_redis_url(current: Settings) -> None:
+    """docker-compose passes one REDIS_URL; split it into the host/port event_bus.py reads."""
+    if not current.redis_url:
+        return
+    from urllib.parse import urlparse
+
+    parsed = urlparse(current.redis_url)
+    current.redis_host = parsed.hostname or current.redis_host
+    current.redis_port = parsed.port or current.redis_port
+
+
+_apply_redis_url(settings)

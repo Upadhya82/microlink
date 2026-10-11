@@ -44,6 +44,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/shop_db
       REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,6 +59,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/recommendation_db
       REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       SHOP_SERVICE_URL: http://shop-service:8000
     depends_on:
       postgres:
@@ -73,6 +75,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/navigation_db
       REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       MAPS_API_KEY: ${MAPS_API_KEY:-}
     depends_on:
       postgres:
@@ -86,6 +89,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/delivery_db
       REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,6 +104,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/crowdsource_db
       REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
     depends_on:
       postgres:
         condition: service_healthy
@@ -114,6 +119,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/admin_db
       REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
     depends_on:
       postgres:
         condition: service_healthy
