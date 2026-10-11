@@ -32,7 +32,9 @@ class Validators {
   static String? phone(String? value) {
     if (value == null || value.trim().isEmpty) return null;
     final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.length < 7) return 'Enter a valid phone number';
+    // Sri Lankan mobile numbers are ten digits, written 07X XXX XXXX. Saying
+    // how many are expected is more use than "invalid".
+    if (digits.length != 10) return 'Phone number must be 10 digits';
     return null;
   }
 

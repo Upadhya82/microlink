@@ -1,3 +1,5 @@
+import '../l10n/app_strings.dart';
+
 /// Mirrors shop-service's `ShopResponse` schema.
 class Shop {
   final String id;
@@ -78,6 +80,16 @@ class Product {
   final String category;
   final bool isAvailable;
 
+  /// Percentage off, 0-90.
+  final int discountPercent;
+
+  /// Price after the discount. Computed by shop-service rather than here so
+  /// every client shows the same number.
+  final double finalPrice;
+
+  /// Server-relative path to the product photo, or null when there is none.
+  final String? imageUrl;
+
   const Product({
     required this.id,
     required this.shopId,
@@ -87,7 +99,15 @@ class Product {
     required this.stockQuantity,
     required this.category,
     required this.isAvailable,
-  });
+    this.discountPercent = 0,
+    double? finalPrice,
+    this.imageUrl,
+  }) : finalPrice = finalPrice ?? price;
+
+  bool get hasDiscount => discountPercent > 0;
+
+  /// What the customer saves, for the "you save Rs.X" line.
+  double get savings => price - finalPrice;
 
   factory Product.fromJson(Map<String, dynamic> json) {
     return Product(
@@ -99,6 +119,9 @@ class Product {
       stockQuantity: (json['stock_quantity'] as num?)?.toInt() ?? 0,
       category: json['category'] as String? ?? '',
       isAvailable: json['is_available'] as bool? ?? true,
+      discountPercent: (json['discount_percent'] as num?)?.toInt() ?? 0,
+      finalPrice: (json['final_price'] as num?)?.toDouble(),
+      imageUrl: json['image_url'] as String?,
     );
   }
 }
@@ -141,7 +164,14 @@ const List<String> shopCategories = [
   'other',
 ];
 
+/// Display name for a shop category, translated when the app is in Sinhala.
+///
+/// Falls back to capitalising the raw value, so a category the backend adds
+/// later still renders as something readable instead of an empty chip.
 String formatCategoryLabel(String category) {
   if (category.isEmpty) return category;
+  final key = 'category.$category';
+  final translated = tr(key);
+  if (translated != key) return translated;
   return category[0].toUpperCase() + category.substring(1);
 }

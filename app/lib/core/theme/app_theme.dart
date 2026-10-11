@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'app_colors_extension.dart';
+import 'app_motion.dart';
 import 'app_spacing.dart';
 
 /// MicroLink's design system: Modern & Minimal. One ThemeData per brightness,
@@ -229,7 +230,11 @@ class _FadeSlideTransitionsBuilder extends PageTransitionsBuilder {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
-    final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+    final curved = CurvedAnimation(
+      parent: animation,
+      curve: AppMotion.enter,
+      reverseCurve: AppMotion.exit,
+    );
     return FadeTransition(
       opacity: curved,
       child: SlideTransition(

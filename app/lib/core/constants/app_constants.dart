@@ -53,4 +53,10 @@ class AppRoutes {
   static const String reportRoadIssue = '/crowdsource/report-road-issue';
   static const String adminDashboard = '/admin/dashboard';
   static const String submitAd = '/ads/submit';
+  static const String notifications = '/notifications';
+  static const String checkout = '/orders/checkout';
+  static const String settings = '/settings';
+  static const String about = '/settings/about';
+  static const String verificationDocuments = '/account/documents';
+  static const String adminReview = '/admin/review';
 }

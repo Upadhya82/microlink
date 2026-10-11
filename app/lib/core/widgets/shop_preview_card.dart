@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/media_url.dart';
 import '../constants/app_constants.dart';
 import '../models/shop.dart';
 import '../theme/app_colors_extension.dart';
@@ -59,7 +60,7 @@ class ShopPreviewCard extends StatelessWidget {
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.card)),
                       child: shop.imageUrl != null
                           ? Image.network(
-                              shop.imageUrl!,
+                              mediaUrl(shop.imageUrl)!,
                               width: double.infinity,
                               height: 128,
                               fit: BoxFit.cover,

@@ -37,3 +37,4 @@ class SubmitAdArgs {
   final String? shopName;
   const SubmitAdArgs({this.shopId, this.shopName});
 }
+

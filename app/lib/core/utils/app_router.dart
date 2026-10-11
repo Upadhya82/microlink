@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../features/account/screens/verification_documents_screen.dart';
 import '../../features/admin/screens/admin_dashboard_screen.dart';
+import '../../features/admin/screens/admin_review_screen.dart';
 import '../../features/ads/screens/submit_ad_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
@@ -11,6 +13,10 @@ import '../../features/delivery/screens/driver_home_screen.dart';
 import '../../features/delivery/screens/my_orders_screen.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/navigation/screens/live_map_screen.dart';
+import '../../features/notifications/screens/notifications_screen.dart';
+import '../../features/orders/screens/checkout_screen.dart';
+import '../../features/settings/screens/about_screen.dart';
+import '../../features/settings/screens/settings_screen.dart';
 import '../../features/recommendations/screens/interests_screen.dart';
 import '../../features/recommendations/screens/my_favorites_screen.dart';
 import '../../features/recommendations/screens/recommended_shops_screen.dart';
@@ -66,6 +72,18 @@ class AppRouter {
         return _page(const ReportRoadIssueScreen(), settings);
       case AppRoutes.adminDashboard:
         return _page(const AdminDashboardScreen(), settings);
+      case AppRoutes.notifications:
+        return _page(const NotificationsScreen(), settings);
+      case AppRoutes.checkout:
+        return _page(const CheckoutScreen(), settings);
+      case AppRoutes.verificationDocuments:
+        return _page(const VerificationDocumentsScreen(), settings);
+      case AppRoutes.adminReview:
+        return _page(const AdminReviewScreen(), settings);
+      case AppRoutes.settings:
+        return _page(const SettingsScreen(), settings);
+      case AppRoutes.about:
+        return _page(const AboutScreen(), settings);
       case AppRoutes.submitAd:
         final args = settings.arguments as SubmitAdArgs? ?? const SubmitAdArgs();
         return _page(SubmitAdScreen(args: args), settings);
