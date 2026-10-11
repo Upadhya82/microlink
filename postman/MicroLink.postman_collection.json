@@ -1,0 +1,4198 @@
+{
+ "info": {
+  "name": "MicroLink API (through the gateway)",
+  "description": "Every endpoint of the seven MicroLink services, called through the API gateway on port 8080 exactly as the mobile application calls them.\n\nHow to use:\n1. Start the system: docker compose up -d\n2. Open 'Start here' > 'Log in' and press Send. The token is stored automatically.\n3. Every other request inherits that token, so they can be sent straight away.\n\nRequests that need a different role (shop owner, delivery agent, administrator) just need a different log-in: change the email and password variables and send 'Log in' again.\n\nGenerated from each service's own OpenAPI document, so the paths and bodies match the running code.",
+  "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+ },
+ "auth": {
+  "type": "bearer",
+  "bearer": [
+   {
+    "key": "token",
+    "value": "{{token}}",
+    "type": "string"
+   }
+  ]
+ },
+ "variable": [
+  {
+   "key": "baseUrl",
+   "value": "http://localhost:8080/api"
+  },
+  {
+   "key": "email",
+   "value": "demo.customer@microlink.lk"
+  },
+  {
+   "key": "password",
+   "value": "Passw0rd1"
+  },
+  {
+   "key": "token",
+   "value": ""
+  },
+  {
+   "key": "userId",
+   "value": ""
+  }
+ ],
+ "item": [
+  {
+   "name": "Start here",
+   "item": [
+    {
+     "name": "0. Log in (saves {{token}})",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "// Stores the token so every other request can use it.",
+         "if (pm.response.code === 200) {",
+         "    const body = pm.response.json();",
+         "    pm.collectionVariables.set('token', body.access_token);",
+         "    pm.collectionVariables.set('userId', body.user.id);",
+         "    console.log('Signed in as ' + body.user.email + ' (' + body.user.role + ')');",
+         "}",
+         "pm.test('login returns 200', function () {",
+         "    pm.response.to.have.status(200);",
+         "});"
+        ]
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/auth/login",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "auth",
+        "login"
+       ]
+      },
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "description": "Run this first. The token is saved as a collection variable and sent automatically by every other request."
+     },
+     "response": []
+    }
+   ]
+  },
+  {
+   "name": "User service",
+   "item": [
+    {
+     "name": "Login",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/auth/login",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "auth",
+        "login"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"email\": \"demo.customer@microlink.lk\",\n  \"password\": \"Passw0rd1\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Register",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/auth/register",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "auth",
+        "register"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"email\": \"demo.customer@microlink.lk\",\n  \"password\": \"Passw0rd1\",\n  \"full_name\": \"Demo Customer\",\n  \"phone\": \"0771234567\",\n  \"business_name\": \"Kamal Stores\",\n  \"role\": \"user\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Register Application",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/auth/register-application",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "auth",
+        "register-application"
+       ]
+      },
+      "description": "Register a shop owner or delivery agent together with their documents.\n\nOne request, one transaction. Registering first and uploading afterwards\nleft applicants with an account they could not log into and no documents\nattached when an upload failed -- an account nobody could use and no\nadmin could action. Here nothing is written unless every document is\naccepted, so \"no documents\" simply means \"no account\".",
+      "body": {
+       "mode": "formdata",
+       "formdata": [
+        {
+         "key": "file",
+         "type": "file",
+         "src": []
+        }
+       ]
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "List Users",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users"
+       ],
+       "query": [
+        {
+         "key": "role",
+         "value": "user",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "is_verified",
+         "value": "true",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "q",
+         "value": "rice",
+         "description": "Search name or email",
+         "disabled": true
+        },
+        {
+         "key": "limit",
+         "value": "200",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Get Document File",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/documents/:document_id/file",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        "documents",
+        ":document_id",
+        "file"
+       ],
+       "variable": [
+        {
+         "key": "document_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "Serve a document's bytes to its owner or to an admin.\n\nUnlike shop photos this is not public -- these are identity documents."
+     },
+     "response": []
+    },
+    {
+     "name": "Get My Profile",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/me",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        "me"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Update My Profile",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/me",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        "me"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"full_name\": \"Demo Customer\",\n  \"phone\": \"0771234567\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "List My Documents",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/me/documents",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        "me",
+        "documents"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Upload My Document",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/me/documents",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        "me",
+        "documents"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "formdata",
+       "formdata": [
+        {
+         "key": "file",
+         "type": "file",
+         "src": []
+        }
+       ]
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Delete My Document",
+     "request": {
+      "method": "DELETE",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/me/documents/:document_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        "me",
+        "documents",
+        ":document_id"
+       ],
+       "variable": [
+        {
+         "key": "document_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Get My Preferences",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/me/preferences",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        "me",
+        "preferences"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Update My Preferences",
+     "request": {
+      "method": "PUT",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/me/preferences",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        "me",
+        "preferences"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"preferred_categories\": \"string\",\n  \"max_distance_km\": 5.0,\n  \"notifications_enabled\": true,\n  \"language\": \"string\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Get User Public",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/:user_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        ":user_id"
+       ],
+       "variable": [
+        {
+         "key": "user_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Delete User",
+     "request": {
+      "method": "DELETE",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/:user_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        ":user_id"
+       ],
+       "variable": [
+        {
+         "key": "user_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "REQ-ADMIN-3. Deleting an admin, or yourself, is refused -- it is far\ntoo easy to lock the whole platform out by accident."
+     },
+     "response": []
+    },
+    {
+     "name": "Activate User",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/:user_id/activate",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        ":user_id",
+        "activate"
+       ],
+       "variable": [
+        {
+         "key": "user_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "REQ-ADMIN-3: undo a deactivation."
+     },
+     "response": []
+    },
+    {
+     "name": "Deactivate User",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/:user_id/deactivate",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        ":user_id",
+        "deactivate"
+       ],
+       "variable": [
+        {
+         "key": "user_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "List User Documents",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/:user_id/documents",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        ":user_id",
+        "documents"
+       ],
+       "variable": [
+        {
+         "key": "user_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "REQ-ADMIN-1/2: what the admin reviews before approving an account."
+     },
+     "response": []
+    },
+    {
+     "name": "Reject User",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/:user_id/reject",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        ":user_id",
+        "reject"
+       ],
+       "variable": [
+        {
+         "key": "user_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "REQ-ADMIN-1/2: turn down a shop owner or agent application, with a\nreason the applicant is actually told.",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"reason\": \"Annual stock take\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Verify User",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/users/:user_id/verify",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "users",
+        ":user_id",
+        "verify"
+       ],
+       "variable": [
+        {
+         "key": "user_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    }
+   ]
+  },
+  {
+   "name": "Shop service",
+   "item": [
+    {
+     "name": "Create Shop",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"name\": \"Kamal Stores\",\n  \"description\": \"Everyday groceries and essentials\",\n  \"category\": \"grocery\",\n  \"address\": \"42 Galle Road, Colombo 03\",\n  \"latitude\": 6.9271,\n  \"longitude\": 79.8612,\n  \"phone\": \"0771234567\",\n  \"image_url\": \"https://example.com/photo.jpg\",\n  \"opening_time\": \"09:00\",\n  \"closing_time\": \"18:00\",\n  \"delivery_available\": false,\n  \"photos\": [\n    \"string\"\n  ]\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "List Shops",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops"
+       ],
+       "query": [
+        {
+         "key": "q",
+         "value": "rice",
+         "description": "Search shop names, addresses, categories and product names",
+         "disabled": true
+        },
+        {
+         "key": "category",
+         "value": "grocery",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "is_open",
+         "value": "true",
+         "description": "true = only shops that are open now",
+         "disabled": true
+        },
+        {
+         "key": "min_rating",
+         "value": "1.0",
+         "description": "Minimum trust score (1-5)",
+         "disabled": true
+        },
+        {
+         "key": "delivery_available",
+         "value": "true",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "owner_id",
+         "value": "string",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "lat",
+         "value": "6.9271",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "lng",
+         "value": "79.8612",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "radius_km",
+         "value": "2.0",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "unverified_only",
+         "value": "false",
+         "description": "Admin verification queue: unverified shops, newest first, ignoring other filters",
+         "disabled": true
+        },
+        {
+         "key": "sort",
+         "value": "smart",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "limit",
+         "value": "50",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Search External Places",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/external?category=grocery&lat=6.9271&lng=79.8612",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        "external"
+       ],
+       "query": [
+        {
+         "key": "category",
+         "value": "grocery",
+         "description": "",
+         "disabled": false
+        },
+        {
+         "key": "lat",
+         "value": "6.9271",
+         "description": "",
+         "disabled": false
+        },
+        {
+         "key": "lng",
+         "value": "79.8612",
+         "description": "",
+         "disabled": false
+        },
+        {
+         "key": "radius_km",
+         "value": "2.0",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": "Real places from OpenStreetMap (Overpass) near a point.\n\nThese are display-only: every result carries source=\"openstreetmap\" and an\nid that does not exist in MicroLink, so the app must never treat one as a\nregistered shop."
+     },
+     "response": []
+    },
+    {
+     "name": "Search By Landmark",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/landmark?landmark=Diyagama",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        "landmark"
+       ],
+       "query": [
+        {
+         "key": "landmark",
+         "value": "Diyagama",
+         "description": "For example \"Central Bus Stand\"",
+         "disabled": false
+        },
+        {
+         "key": "radius_km",
+         "value": "2.0",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "q",
+         "value": "rice",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "category",
+         "value": "grocery",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "is_open",
+         "value": "true",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "min_rating",
+         "value": "1.0",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "delivery_available",
+         "value": "true",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "sort",
+         "value": "smart",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "limit",
+         "value": "50",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": "SRS REQ-SEARCH-3: turn a landmark name into a point, then return the\nshops inside the radius (default 2 km) of that point."
+     },
+     "response": []
+    },
+    {
+     "name": "List My Shops",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/owner/me",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        "owner",
+        "me"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Reverse Geocode Point",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/reverse-geocode?lat=6.9271&lng=79.8612",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        "reverse-geocode"
+       ],
+       "query": [
+        {
+         "key": "lat",
+         "value": "6.9271",
+         "description": "",
+         "disabled": false
+        },
+        {
+         "key": "lng",
+         "value": "79.8612",
+         "description": "",
+         "disabled": false
+        }
+       ]
+      },
+      "description": "Turn a dropped map pin into a readable address.\n\nUsed by the delivery-location picker: the customer can place their\ndelivery point anywhere, and the agent needs an address, not a pair of\ncoordinates. Declared before /{shop_id} so the literal path is not read\nas a shop id."
+     },
+     "response": []
+    },
+    {
+     "name": "Trending Categories",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/trending",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        "trending"
+       ],
+       "query": [
+        {
+         "key": "days",
+         "value": "30",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "limit",
+         "value": "10",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": "REQ-ADMIN-6: the most-searched categories.\n\nDerived from `search_impression` events, which are recorded per shop\nwhenever a shop appears in a result set -- so this measures which\ncategories people's searches actually surface, which is the closest\nhonest proxy for \"top searched categories\" without storing raw query\nstrings (which would be personal data we have no reason to keep).\n\nPublic: it feeds admin analytics, but there is nothing sensitive in an\naggregate category count, and keeping it unauthenticated means\nadmin-service can proxy it without forwarding credentials."
+     },
+     "response": []
+    },
+    {
+     "name": "Get Shop",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Update Shop",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"name\": \"Kamal Stores\",\n  \"description\": \"Everyday groceries and essentials\",\n  \"category\": \"grocery\",\n  \"address\": \"42 Galle Road, Colombo 03\",\n  \"latitude\": 6.9271,\n  \"longitude\": 79.8612,\n  \"phone\": \"0771234567\",\n  \"image_url\": \"https://example.com/photo.jpg\",\n  \"opening_time\": \"string\",\n  \"closing_time\": \"string\",\n  \"delivery_available\": true\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Delete Shop",
+     "request": {
+      "method": "DELETE",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "List Active Alerts",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/alerts",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "alerts"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Create Alert",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/alerts",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "alerts"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"message\": \"We are closing early today\",\n  \"alert_type\": \"general\",\n  \"new_address\": \"string\",\n  \"starts_at\": \"2026-10-11T08:00:00Z\",\n  \"ends_at\": \"2026-10-11T08:00:00Z\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Deactivate Alert",
+     "request": {
+      "method": "DELETE",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/alerts/:alert_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "alerts",
+        ":alert_id"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        },
+        {
+         "key": "alert_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Get Shop Analytics",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/analytics",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "analytics"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "List Photos",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/photos",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "photos"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Add Photo",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/photos",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "photos"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "REQ-SHOP-1: up to 10 photos per shop (added as links - there is no file storage).",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"url\": \"https://example.com/photo.jpg\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Upload Photo",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/photos/upload",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "photos",
+        "upload"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "REQ-SHOP-1: upload a real photo file (up to 10 per shop).\n\nThe bytes live in Postgres rather than object storage: this project has\nno S3 bucket provisioned, and a resized JPEG is a couple of hundred KB.\nSwapping to S3 later means changing this function and the serve endpoint\nbelow -- nothing else, because the app only ever sees `url`.",
+      "body": {
+       "mode": "formdata",
+       "formdata": [
+        {
+         "key": "file",
+         "type": "file",
+         "src": []
+        }
+       ]
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Delete Photo",
+     "request": {
+      "method": "DELETE",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/photos/:photo_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "photos",
+        ":photo_id"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        },
+        {
+         "key": "photo_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Get Photo File",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/photos/:photo_id/file",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "photos",
+        ":photo_id",
+        "file"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        },
+        {
+         "key": "photo_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "Serve an uploaded photo. Public: shop photos are public content, and\nrequiring a token here would break plain <img> loading in the app."
+     },
+     "response": []
+    },
+    {
+     "name": "List Products",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/products",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "products"
+       ],
+       "query": [
+        {
+         "key": "stock_status",
+         "value": "in_stock",
+         "description": "Only products with this stock status",
+         "disabled": true
+        }
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Create Product",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/products",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "products"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"name\": \"Kamal Stores\",\n  \"description\": \"Everyday groceries and essentials\",\n  \"price\": 450.0,\n  \"stock_quantity\": 25,\n  \"category\": \"\",\n  \"discount_percent\": 10,\n  \"stock_status\": \"in_stock\",\n  \"is_available\": true\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Update Product",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/products/:product_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "products",
+        ":product_id"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        },
+        {
+         "key": "product_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"name\": \"Kamal Stores\",\n  \"description\": \"Everyday groceries and essentials\",\n  \"price\": 450.0,\n  \"stock_quantity\": 25,\n  \"category\": \"string\",\n  \"discount_percent\": 10,\n  \"stock_status\": \"in_stock\",\n  \"is_available\": true\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Delete Product",
+     "request": {
+      "method": "DELETE",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/products/:product_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "products",
+        ":product_id"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        },
+        {
+         "key": "product_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Upload Product Image",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/products/:product_id/image",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "products",
+        ":product_id",
+        "image"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        },
+        {
+         "key": "product_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "Attach a photo to a product (shop-owner storefront).\n\nOne image per product rather than a gallery: on a phone listing, the\nthumbnail is what sells the item, and asking a micro-business owner to\ncurate several shots per product is friction they will not accept.",
+      "body": {
+       "mode": "formdata",
+       "formdata": [
+        {
+         "key": "file",
+         "type": "file",
+         "src": []
+        }
+       ]
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Get Product Image",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/products/:product_id/image",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "products",
+        ":product_id",
+        "image"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        },
+        {
+         "key": "product_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "Public: product photos are shop-front content, and requiring a token\nwould stop a plain <img> in the app from loading them."
+     },
+     "response": []
+    },
+    {
+     "name": "Delete Product Image",
+     "request": {
+      "method": "DELETE",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/products/:product_id/image",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "products",
+        ":product_id",
+        "image"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        },
+        {
+         "key": "product_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Rate Shop",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/rating",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "rating"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"rating\": 5,\n  \"comment\": \"Excellent service\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "List Reviews",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/reviews",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "reviews"
+       ],
+       "query": [
+        {
+         "key": "limit",
+         "value": "30",
+         "description": "",
+         "disabled": true
+        }
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Reply To Review",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/reviews/:review_id/reply",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "reviews",
+        ":review_id",
+        "reply"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        },
+        {
+         "key": "review_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"reply\": \"Thank you for your feedback\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Update Shop Status",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/status",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "status"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "SRS REQ-SHOP-2. Accepts the old {\"is_open\": bool} or a full status with\nan optional reason and expected re-open time.",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"is_open\": true,\n  \"status\": \"open\",\n  \"reason\": \"Annual stock take\",\n  \"reopen_at\": \"2026-10-11T08:00:00Z\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Verify Shop",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/verify",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "verify"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "REQ-ADMIN-1: approve (or un-approve) a shop registration.",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"is_verified\": true\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    }
+   ]
+  },
+  {
+   "name": "Recommendation service",
+   "item": [
+    {
+     "name": "Get Recommendations",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/recommendations",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "recommendations"
+       ],
+       "query": [
+        {
+         "key": "lat",
+         "value": "6.9271",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "lng",
+         "value": "79.8612",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "limit",
+         "value": "10",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": "Rank nearby open shops for this user with a hybrid score blending:\ncontent affinity (their category taste), collaborative filtering (what\nlike-minded users favourite), global popularity, proximity and freshness --\nthen re-rank for category variety. Falls back gracefully to\npopularity + proximity for a brand-new user with no history."
+     },
+     "response": []
+    },
+    {
+     "name": "List My Favorites",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/recommendations/favorites/me",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "recommendations",
+        "favorites",
+        "me"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Create Interaction",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/recommendations/interactions",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "recommendations",
+        "interactions"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"shop_id\": \"string\",\n  \"interaction_type\": \"view\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "List My Interactions",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/recommendations/interactions/me",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "recommendations",
+        "interactions",
+        "me"
+       ],
+       "query": [
+        {
+         "key": "limit",
+         "value": "50",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Dismiss Shop",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/recommendations/:shop_id/dismiss",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "recommendations",
+        ":shop_id",
+        "dismiss"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Undismiss Shop",
+     "request": {
+      "method": "DELETE",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/recommendations/:shop_id/dismiss",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "recommendations",
+        ":shop_id",
+        "dismiss"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Favorite Shop",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/recommendations/:shop_id/favorite",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "recommendations",
+        ":shop_id",
+        "favorite"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Unfavorite Shop",
+     "request": {
+      "method": "DELETE",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/recommendations/:shop_id/favorite",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "recommendations",
+        ":shop_id",
+        "favorite"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    }
+   ]
+  },
+  {
+   "name": "Navigation service",
+   "item": [
+    {
+     "name": "My Route History",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/navigation/history/me",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "navigation",
+        "history",
+        "me"
+       ],
+       "query": [
+        {
+         "key": "limit",
+         "value": "50",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Optimize Stops",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/navigation/optimize",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "navigation",
+        "optimize"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"origin\": {\n    \"lat\": 6.9271,\n    \"lng\": 79.8612\n  },\n  \"stops\": [\n    {\n      \"lat\": 6.9271,\n      \"lng\": 79.8612,\n      \"label\": \"string\"\n    }\n  ]\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Compute Route",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/navigation/route",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "navigation",
+        "route"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"origin\": {\n    \"lat\": 6.9271,\n    \"lng\": 79.8612\n  },\n  \"destination\": {\n    \"lat\": 6.9271,\n    \"lng\": 79.8612\n  },\n  \"waypoints\": [\n    {\n      \"lat\": 6.9271,\n      \"lng\": 79.8612\n    }\n  ],\n  \"mode\": \"driving\",\n  \"preference\": \"fastest\",\n  \"language\": \"en\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Voice Locales",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/navigation/voice-locales",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "navigation",
+        "voice-locales"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    }
+   ]
+  },
+  {
+   "name": "Delivery service",
+   "item": [
+    {
+     "name": "List Agents",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/agents",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "agents"
+       ],
+       "query": [
+        {
+         "key": "is_available",
+         "value": "true",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Get My Profile",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/agents/me",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "agents",
+        "me"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Update My Availability",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/agents/me/availability",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "agents",
+        "me",
+        "availability"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"is_available\": true\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Update My Location",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/agents/me/location",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "agents",
+        "me",
+        "location"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"lat\": 6.9271,\n  \"lng\": 79.8612\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Upsert Profile",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/agents/profile",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "agents",
+        "profile"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"vehicle_type\": \"bike\",\n  \"license_plate\": \"string\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Get Agent Performance",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/agents/:agent_user_id/performance",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "agents",
+        ":agent_user_id",
+        "performance"
+       ],
+       "variable": [
+        {
+         "key": "agent_user_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Create Order",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/orders",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "orders"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"shop_id\": \"string\",\n  \"items\": [\n    {}\n  ],\n  \"delivery_address\": \"12 Lake Road, Homagama\",\n  \"delivery_lat\": 6.84,\n  \"delivery_lng\": 80.01,\n  \"total_amount\": 160.0\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "List Available Orders",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/orders/available",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "orders",
+        "available"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "List My Orders",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/orders/me",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "orders",
+        "me"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "List Shop Orders",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/orders/shop/:shop_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "orders",
+        "shop",
+        ":shop_id"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "Orders placed with a shop, for its owner -- including the pickup code\nthey read out to the collecting agent."
+     },
+     "response": []
+    },
+    {
+     "name": "Get Order",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/orders/:order_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "orders",
+        ":order_id"
+       ],
+       "variable": [
+        {
+         "key": "order_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Accept Order",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/orders/:order_id/accept",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "orders",
+        ":order_id",
+        "accept"
+       ],
+       "variable": [
+        {
+         "key": "order_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Cancel Order",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/orders/:order_id/cancel",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "orders",
+        ":order_id",
+        "cancel"
+       ],
+       "variable": [
+        {
+         "key": "order_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Update Order Status",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/orders/:order_id/status",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "orders",
+        ":order_id",
+        "status"
+       ],
+       "variable": [
+        {
+         "key": "order_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"status\": \"accepted\",\n  \"code\": \"string\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    }
+   ]
+  },
+  {
+   "name": "Crowdsource service",
+   "item": [
+    {
+     "name": "Create Feedback",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/feedback",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "feedback"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"order_id\": \"string\",\n  \"rating\": 5,\n  \"comment\": \"Excellent service\",\n  \"shop_id\": \"string\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "List Feedback For Order",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/feedback/order/:order_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "feedback",
+        "order",
+        ":order_id"
+       ],
+       "variable": [
+        {
+         "key": "order_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Create Road Report",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/road-reports",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "road-reports"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"latitude\": 6.9271,\n  \"longitude\": 79.8612,\n  \"condition_type\": \"pothole\",\n  \"description\": \"Everyday groceries and essentials\",\n  \"severity\": \"low\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "List Road Reports",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/road-reports",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "road-reports"
+       ],
+       "query": [
+        {
+         "key": "status",
+         "value": "pending",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "condition_type",
+         "value": "pothole",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "lat",
+         "value": "6.9271",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "lng",
+         "value": "79.8612",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "radius_km",
+         "value": "2.0",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Upload Road Report Photo",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/road-reports/:report_id/photo",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "road-reports",
+        ":report_id",
+        "photo"
+       ],
+       "variable": [
+        {
+         "key": "report_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "REQ-CROWD-4: attach the optional photo to a road report.\n\nA separate call rather than a multipart create, so the report is saved\nthe moment the user submits it -- a failed photo upload on a bad rural\nconnection must not lose the report itself.",
+      "body": {
+       "mode": "formdata",
+       "formdata": [
+        {
+         "key": "file",
+         "type": "file",
+         "src": []
+        }
+       ]
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Get Road Report Photo",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/road-reports/:report_id/photo",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "road-reports",
+        ":report_id",
+        "photo"
+       ],
+       "variable": [
+        {
+         "key": "report_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "Public: approved road reports are shown to every driver on the map."
+     },
+     "response": []
+    },
+    {
+     "name": "Update Road Report Status",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/road-reports/:report_id/status",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "road-reports",
+        ":report_id",
+        "status"
+       ],
+       "variable": [
+        {
+         "key": "report_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"status\": \"verified\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Create Correction",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/shop-corrections",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "shop-corrections"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"shop_id\": \"string\",\n  \"shop_name\": \"New Corner Shop\",\n  \"name\": \"Kamal Stores\",\n  \"address\": \"42 Galle Road, Colombo 03\",\n  \"phone\": \"0771234567\",\n  \"opening_time\": \"string\",\n  \"closing_time\": \"string\",\n  \"note\": \"string\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "List Corrections",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/shop-corrections",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "shop-corrections"
+       ],
+       "query": [
+        {
+         "key": "status",
+         "value": "string",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Update Correction Status",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/shop-corrections/:report_id/status",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "shop-corrections",
+        ":report_id",
+        "status"
+       ],
+       "variable": [
+        {
+         "key": "report_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"status\": \"approved\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Create Shop Report",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/shop-reports",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "shop-reports"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"shop_name\": \"New Corner Shop\",\n  \"category\": \"string\",\n  \"address\": \"42 Galle Road, Colombo 03\",\n  \"latitude\": 6.9271,\n  \"longitude\": 79.8612,\n  \"description\": \"Everyday groceries and essentials\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "List Shop Reports",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/shop-reports",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "shop-reports"
+       ],
+       "query": [
+        {
+         "key": "status",
+         "value": "pending",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Update Shop Report Status",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/shop-reports/:report_id/status",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "shop-reports",
+        ":report_id",
+        "status"
+       ],
+       "variable": [
+        {
+         "key": "report_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"status\": \"approved\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Get My Trust Score",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/trust-score/me",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "trust-score",
+        "me"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Get Trust Score",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/crowdsource/trust-score/:user_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "crowdsource",
+        "trust-score",
+        ":user_id"
+       ],
+       "variable": [
+        {
+         "key": "user_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    }
+   ]
+  },
+  {
+   "name": "Admin service",
+   "item": [
+    {
+     "name": "List Activity Log",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/admin/activity-log",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "admin",
+        "activity-log"
+       ],
+       "query": [
+        {
+         "key": "event_type",
+         "value": "string",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "source_service",
+         "value": "string",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "limit",
+         "value": "100",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Get Analytics Overview",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/admin/analytics/overview",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "admin",
+        "analytics",
+        "overview"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Create Complaint",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/admin/complaints",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "admin",
+        "complaints"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"subject\": \"Late delivery\",\n  \"description\": \"Everyday groceries and essentials\",\n  \"category\": \"shop\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "List Complaints",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/admin/complaints",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "admin",
+        "complaints"
+       ],
+       "query": [
+        {
+         "key": "status",
+         "value": "string",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Get Complaint",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/admin/complaints/:complaint_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "admin",
+        "complaints",
+        ":complaint_id"
+       ],
+       "variable": [
+        {
+         "key": "complaint_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Update Complaint",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/admin/complaints/:complaint_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "admin",
+        "complaints",
+        ":complaint_id"
+       ],
+       "variable": [
+        {
+         "key": "complaint_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"status\": \"open\",\n  \"admin_response\": \"string\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Get Monitor",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/admin/monitor",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "admin",
+        "monitor"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "List Subscription Plans",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/admin/subscription-plans",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "admin",
+        "subscription-plans"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Create Subscription Plan",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/admin/subscription-plans",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "admin",
+        "subscription-plans"
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"name\": \"Kamal Stores\",\n  \"description\": \"Everyday groceries and essentials\",\n  \"price_monthly\": 1500.0,\n  \"features\": [\n    \"string\"\n  ]\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Update Subscription Plan",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/admin/subscription-plans/:plan_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "admin",
+        "subscription-plans",
+        ":plan_id"
+       ],
+       "variable": [
+        {
+         "key": "plan_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"name\": \"Kamal Stores\",\n  \"description\": \"Everyday groceries and essentials\",\n  \"price_monthly\": 1500.0,\n  \"features\": [\n    \"string\"\n  ],\n  \"is_active\": true\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Delete Subscription Plan",
+     "request": {
+      "method": "DELETE",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/admin/subscription-plans/:plan_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "admin",
+        "subscription-plans",
+        ":plan_id"
+       ],
+       "variable": [
+        {
+         "key": "plan_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Submit Ad",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/ads",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "ads"
+       ]
+      },
+      "description": "A shop owner (or anyone) submits an ad for a shop or an outside\ncompany to run on the customer Home screen. Always starts pending --\nonly an admin can approve it (see `update_ad_status` below).",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"advertiser_name\": \"Kamal Stores\",\n  \"title\": \"Fresh bread daily\",\n  \"subtitle\": \"Visit us in Homagama\",\n  \"image_url\": \"https://example.com/photo.jpg\",\n  \"shop_id\": \"string\",\n  \"start_date\": \"2026-10-11T08:00:00Z\",\n  \"end_date\": \"2026-10-11T08:00:00Z\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "List Ads",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/ads",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "ads"
+       ],
+       "query": [
+        {
+         "key": "status",
+         "value": "string",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": "Admin sees every submission (for the moderation queue); anyone else\nonly sees their own submissions and their review status."
+     },
+     "response": []
+    },
+    {
+     "name": "List Active Ads",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/ads/active",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "ads",
+        "active"
+       ]
+      },
+      "description": "What the customer Home screen banner actually renders: approved ads\nwhose date window (if any) covers right now."
+     },
+     "response": []
+    },
+    {
+     "name": "Update Ad",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/ads/:ad_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "ads",
+        ":ad_id"
+       ],
+       "variable": [
+        {
+         "key": "ad_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "Admin edits an ad's content (copy, image, date window) to match the\nadvertiser's brand before -- or instead of -- approving it as-submitted.",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"advertiser_name\": \"Kamal Stores\",\n  \"title\": \"Fresh bread daily\",\n  \"subtitle\": \"Visit us in Homagama\",\n  \"image_url\": \"https://example.com/photo.jpg\",\n  \"start_date\": \"2026-10-11T08:00:00Z\",\n  \"end_date\": \"2026-10-11T08:00:00Z\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Delete Ad",
+     "request": {
+      "method": "DELETE",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/ads/:ad_id",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "ads",
+        ":ad_id"
+       ],
+       "variable": [
+        {
+         "key": "ad_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Update Ad Status",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/ads/:ad_id/status",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "ads",
+        ":ad_id",
+        "status"
+       ],
+       "variable": [
+        {
+         "key": "ad_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"status\": \"pending\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "List My Notifications",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/notifications/me",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "notifications",
+        "me"
+       ],
+       "query": [
+        {
+         "key": "unread_only",
+         "value": "false",
+         "description": "",
+         "disabled": true
+        },
+        {
+         "key": "limit",
+         "value": "50",
+         "description": "",
+         "disabled": true
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Mark All Read",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/notifications/me/read-all",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "notifications",
+        "me",
+        "read-all"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "My Unread Count",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/notifications/me/unread-count",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "notifications",
+        "me",
+        "unread-count"
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    },
+    {
+     "name": "Mark Read",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/notifications/:notification_id/read",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "notifications",
+        ":notification_id",
+        "read"
+       ],
+       "variable": [
+        {
+         "key": "notification_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": ""
+     },
+     "response": []
+    }
+   ]
+  }
+ ]
+}
