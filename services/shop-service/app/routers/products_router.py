@@ -12,12 +12,13 @@ Stock status rules (see app/logic.py -> resolve_stock_status):
 `is_available` is kept in step so older screens keep working.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app import logic
 from app.auth import CurrentUser, get_current_user
 from app.config import settings
+from app.images import ImageRejected, process_image
 from app.database import get_db
 from app.models import Product, Shop
 from app.schemas import ProductCreateRequest, ProductResponse, ProductUpdateRequest, StockStatusLiteral
@@ -79,6 +80,7 @@ async def create_product(
         price=payload.price,
         stock_quantity=payload.stock_quantity or 0,
         category=payload.category,
+        discount_percent=payload.discount_percent,
         stock_status=stock_status,
         is_available=logic.is_available_from_stock(stock_status),
     )
@@ -100,7 +102,7 @@ async def update_product(
     product = _get_product(db, shop_id, product_id)
 
     changes = payload.model_dump(exclude_unset=True)
-    for field in ("name", "description", "price", "category"):
+    for field in ("name", "description", "price", "category", "discount_percent"):
         if field in changes and changes[field] is not None:
             setattr(product, field, changes[field])
 
@@ -134,3 +136,63 @@ async def delete_product(
     product = _get_product(db, shop_id, product_id)
     db.delete(product)
     db.commit()
+
+
+@router.post("/{product_id}/image", response_model=ProductResponse)
+async def upload_product_image(
+    shop_id: str,
+    product_id: str,
+    file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Attach a photo to a product (shop-owner storefront).
+
+    One image per product rather than a gallery: on a phone listing, the
+    thumbnail is what sells the item, and asking a micro-business owner to
+    curate several shots per product is friction they will not accept.
+    """
+    _get_owned_shop(shop_id, current_user, db)
+    product = _get_product(db, shop_id, product_id)
+
+    raw = await file.read()
+    try:
+        processed = process_image(raw, file.content_type)
+    except ImageRejected as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    product.image = processed
+    product.has_image = True
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+@router.get("/{product_id}/image")
+async def get_product_image(shop_id: str, product_id: str, db: Session = Depends(get_db)):
+    """Public: product photos are shop-front content, and requiring a token
+    would stop a plain <img> in the app from loading them."""
+    product = _get_product(db, shop_id, product_id)
+    if not product.has_image or product.image is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No image for this product")
+    return Response(
+        content=product.image,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@router.delete("/{product_id}/image", response_model=ProductResponse)
+async def delete_product_image(
+    shop_id: str,
+    product_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_owned_shop(shop_id, current_user, db)
+    product = _get_product(db, shop_id, product_id)
+    product.image = None
+    product.has_image = False
+    db.commit()
+    db.refresh(product)
+    return product

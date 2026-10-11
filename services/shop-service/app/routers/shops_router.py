@@ -10,18 +10,20 @@ so FastAPI does not mistake the word "landmark" for a shop id.
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, File, Response, UploadFile
 from sqlalchemy import exists, func, or_
 from sqlalchemy.orm import Session
 
 from app import geo, logic
 from app.auth import CurrentUser, get_current_user, require_roles, require_verified
 from app.config import settings
+from app import dormant
 from app.database import get_db
-from app.event_bus import publish_event
+from app.event_bus import notify_users, publish_event
 from app.models import (
     AnalyticsEventType,
     Product,
@@ -30,10 +32,13 @@ from app.models import (
     ShopCategory,
     ShopPhoto,
 )
-from app.overpass_client import geocode_landmark, search_nearby_places
+from app.images import ImageRejected, process_image
+from app.overpass_client import geocode_landmark, reverse_geocode, search_nearby_places
 from app.schemas import (
     LandmarkInfo,
     LandmarkSearchResponse,
+    ShopVerifyRequest,
+    ReverseGeocodeResponse,
     ShopCreateRequest,
     ShopPhotoCreateRequest,
     ShopPhotoResponse,
@@ -256,7 +261,7 @@ def _search_shops(
     owner_id: str | None,
     lat: float | None,
     lng: float | None,
-    radius_km: float,
+    radius_km: float | None,
     sort: str,
     limit: int,
 ) -> list[ShopResponse]:
@@ -271,7 +276,10 @@ def _search_shops(
     )
 
     has_location = lat is not None and lng is not None
-    if has_location:
+    # No radius means no distance limit: distances are still worked out and
+    # sorted on, the results are just not cut off at a circle.
+    limit_by_distance = has_location and radius_km is not None
+    if limit_by_distance:
         box = geo.bounding_box(lat, lng, radius_km)
         if box is not None:  # cheap pre-filter; the exact distance check follows
             query = query.filter(
@@ -285,7 +293,7 @@ def _search_shops(
     for shop in shops:
         if has_location:
             distance = geo.haversine_km(lat, lng, shop.latitude, shop.longitude)
-            if distance > radius_km:
+            if limit_by_distance and distance > radius_km:
                 continue
             rows.append(_Row(shop, round(distance, 2)))
         else:
@@ -353,11 +361,32 @@ async def list_shops(
     owner_id: str | None = Query(default=None),
     lat: float | None = Query(default=None, ge=-90, le=90),
     lng: float | None = Query(default=None, ge=-180, le=180),
-    radius_km: float = Query(default=10, gt=0, le=200),
+    radius_km: float | None = Query(
+        default=None,
+        gt=0,
+        le=500,
+        description="Omit for no distance limit; distances are still returned",
+    ),
+    unverified_only: bool = Query(
+        default=False,
+        description="Admin verification queue: unverified shops, newest first, ignoring other filters",
+    ),
     sort: SortLiteral = Query(default="smart"),
     limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
+    if unverified_only:
+        # The queue is a different question from search: an admin wants
+        # everything still waiting, newest first, not the best match nearby.
+        rows = (
+            db.query(Shop)
+            .filter(Shop.is_verified.is_(False))
+            .order_by(Shop.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return _build_responses(db, [_Row(shop) for shop in rows], None)
+
     return _search_shops(
         db,
         q=q,
@@ -452,6 +481,100 @@ async def search_external_places(
     return await search_nearby_places(category.value, lat, lng, radius_km)
 
 
+@router.patch("/{shop_id}/verify", response_model=ShopResponse)
+async def verify_shop(
+    shop_id: str,
+    payload: ShopVerifyRequest,
+    current_user: CurrentUser = Depends(require_roles("admin")),
+    db: Session = Depends(get_db),
+):
+    """REQ-ADMIN-1: approve (or un-approve) a shop registration."""
+    shop = _get_shop_or_404(db, shop_id)
+    shop.is_verified = payload.is_verified
+    shop.verified_at = datetime.now(timezone.utc) if payload.is_verified else None
+    shop.verified_by = current_user.id if payload.is_verified else None
+    db.commit()
+    db.refresh(shop)
+    await publish_event(
+        "shop.verified",
+        {"shop_id": shop.id, "owner_id": shop.owner_id, "is_verified": shop.is_verified},
+    )
+    if shop.owner_id:
+        await notify_users(
+            [shop.owner_id],
+            "Your shop has been verified" if shop.is_verified else "Your shop needs attention",
+            (
+                f"{shop.name} is now verified and visible to customers."
+                if shop.is_verified
+                else f"{shop.name} is no longer marked as verified. Contact support for details."
+            ),
+            kind="account",
+            link={"route": "shop", "id": shop.id},
+        )
+    return _build_responses(db, [_Row(shop)], None)[0]
+
+
+@router.get("/trending")
+async def trending_categories(
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=10, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """REQ-ADMIN-6: the most-searched categories.
+
+    Derived from `search_impression` events, which are recorded per shop
+    whenever a shop appears in a result set -- so this measures which
+    categories people's searches actually surface, which is the closest
+    honest proxy for "top searched categories" without storing raw query
+    strings (which would be personal data we have no reason to keep).
+
+    Public: it feeds admin analytics, but there is nothing sensitive in an
+    aggregate category count, and keeping it unauthenticated means
+    admin-service can proxy it without forwarding credentials.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (
+        db.query(Shop.category, func.count(ShopAnalyticsEvent.id).label("hits"))
+        .join(ShopAnalyticsEvent, ShopAnalyticsEvent.shop_id == Shop.id)
+        .filter(
+            ShopAnalyticsEvent.event_type == AnalyticsEventType.search_impression,
+            ShopAnalyticsEvent.created_at >= since,
+        )
+        .group_by(Shop.category)
+        .order_by(func.count(ShopAnalyticsEvent.id).desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "term": category.value if hasattr(category, "value") else str(category),
+            "count": hits,
+        }
+        for category, hits in rows
+    ]
+
+
+@router.get("/reverse-geocode", response_model=ReverseGeocodeResponse)
+async def reverse_geocode_point(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+):
+    """Turn a dropped map pin into a readable address.
+
+    Used by the delivery-location picker: the customer can place their
+    delivery point anywhere, and the agent needs an address, not a pair of
+    coordinates. Declared before /{shop_id} so the literal path is not read
+    as a shop id.
+    """
+    place = await reverse_geocode(lat, lng)
+    if place is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="We could not find an address for that point. Try moving the pin slightly.",
+        )
+    return place
+
+
 @router.get("/{shop_id}", response_model=ShopResponse)
 async def get_shop(shop_id: str, db: Session = Depends(get_db)):
     shop = _get_shop_or_404(db, shop_id)
@@ -502,9 +625,12 @@ async def update_shop_status(
     if new_status == "open":
         shop.status_reason = None
         shop.reopen_at = None
+        # Reopening is the owner reacting, so the dormancy follow-up resets.
+        dormant.mark_open(shop)
     else:
         shop.status_reason = payload.reason
         shop.reopen_at = payload.reopen_at if new_status == "temporarily_closed" else None
+        dormant.mark_closed(shop)
     db.commit()
     db.refresh(shop)
 
@@ -559,6 +685,76 @@ async def add_photo(
     db.commit()
     db.refresh(photo)
     return photo
+
+
+@router.post(
+    "/{shop_id}/photos/upload",
+    response_model=ShopPhotoResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_photo(
+    shop_id: str,
+    file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """REQ-SHOP-1: upload a real photo file (up to 10 per shop).
+
+    The bytes live in Postgres rather than object storage: this project has
+    no S3 bucket provisioned, and a resized JPEG is a couple of hundred KB.
+    Swapping to S3 later means changing this function and the serve endpoint
+    below -- nothing else, because the app only ever sees `url`.
+    """
+    shop = _get_shop_or_404(db, shop_id)
+    _ensure_owner_or_admin(shop, current_user)
+
+    existing = (
+        db.query(ShopPhoto).filter(ShopPhoto.shop_id == shop_id).order_by(ShopPhoto.position).all()
+    )
+    if len(existing) >= settings.max_shop_photos:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A shop can have at most {settings.max_shop_photos} photos.",
+        )
+
+    raw = await file.read()
+    try:
+        processed = process_image(raw, file.content_type)
+    except ImageRejected as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    photo = ShopPhoto(
+        shop_id=shop_id,
+        url="",  # set below, once the row has an id
+        data=processed,
+        content_type="image/jpeg",
+        size_bytes=len(processed),
+        position=(existing[-1].position + 1) if existing else 0,
+    )
+    db.add(photo)
+    db.flush()
+    photo.url = f"/shops/{shop_id}/photos/{photo.id}/file"
+    if not shop.image_url:
+        shop.image_url = photo.url
+    db.commit()
+    db.refresh(photo)
+    return photo
+
+
+@router.get("/{shop_id}/photos/{photo_id}/file")
+async def get_photo_file(shop_id: str, photo_id: str, db: Session = Depends(get_db)):
+    """Serve an uploaded photo. Public: shop photos are public content, and
+    requiring a token here would break plain <img> loading in the app."""
+    photo = db.get(ShopPhoto, photo_id)
+    if photo is None or photo.shop_id != shop_id or photo.data is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+    return Response(
+        content=photo.data,
+        media_type=photo.content_type or "image/jpeg",
+        # Immutable: the bytes for a given photo id never change, so the app
+        # and any proxy can cache them hard.
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 @router.delete("/{shop_id}/photos/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)

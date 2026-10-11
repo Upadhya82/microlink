@@ -286,3 +286,69 @@ def lookup_landmark(text: str) -> dict[str, Any] | None:
         if (len(known) >= 4 and known in key) or (len(key) >= 4 and key in known):
             return {"name": name, "latitude": lat, "longitude": lng, "source": "builtin"}
     return None
+
+
+# ------------------------------------------------------- reverse geocoding
+# Nominatim's `address` object, most-specific first. Picking fields by name
+# (rather than using its pre-joined `display_name`) keeps the result short
+# enough to show on a delivery form and drops the ", Sri Lanka" tail that
+# every local result would otherwise carry.
+_ADDRESS_FIELDS_IN_ORDER = (
+    "house_number",
+    "road",
+    "neighbourhood",
+    "suburb",
+    "village",
+    "town",
+    "city",
+    "county",
+    "state",
+)
+
+# How many parts to keep. Three reads as "12, Galle Road, Dehiwala" -- enough
+# for an agent to find the place without becoming a paragraph.
+_MAX_ADDRESS_PARTS = 3
+
+
+def format_reverse_geocode(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Turn a Nominatim /reverse response into {name, address, latitude,
+    longitude}. Returns None when the response carries no usable location.
+
+    Pure so `tests/test_logic.py` can cover the field-picking rules without
+    calling the network.
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    try:
+        latitude = float(payload["lat"])
+        longitude = float(payload["lon"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    address = payload.get("address")
+    parts: list[str] = []
+    if isinstance(address, dict):
+        for field in _ADDRESS_FIELDS_IN_ORDER:
+            value = address.get(field)
+            if isinstance(value, str) and value.strip() and value.strip() not in parts:
+                parts.append(value.strip())
+            if len(parts) == _MAX_ADDRESS_PARTS:
+                break
+
+    if parts:
+        formatted = ", ".join(parts)
+    else:
+        # No structured address: fall back to the pre-joined display name.
+        display = payload.get("display_name")
+        formatted = display.strip() if isinstance(display, str) and display.strip() else ""
+
+    if not formatted:
+        return None
+
+    return {
+        "name": parts[0] if parts else formatted.split(",")[0].strip(),
+        "address": formatted,
+        "latitude": latitude,
+        "longitude": longitude,
+    }

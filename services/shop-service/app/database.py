@@ -33,6 +33,10 @@ def get_db():
 # These statements add the new columns when they are missing (and fill them
 # from the old columns). Every statement is safe to run again and again.
 _COLUMN_MIGRATIONS: list[str] = [
+    # dormant-shop follow-up (REQ-SHOP: a shop closed for a fortnight)
+    "ALTER TABLE shops ADD COLUMN IF NOT EXISTS closed_since TIMESTAMPTZ",
+    "ALTER TABLE shops ADD COLUMN IF NOT EXISTS inactivity_prompt_at TIMESTAMPTZ",
+    "ALTER TABLE shops ADD COLUMN IF NOT EXISTS inactivity_broadcast_at TIMESTAMPTZ",
     # shops: status (REQ-SHOP-2), delivery flag (REQ-SEARCH-2)
     "ALTER TABLE shops ADD COLUMN IF NOT EXISTS status VARCHAR(20)",
     "ALTER TABLE shops ADD COLUMN IF NOT EXISTS status_reason VARCHAR(200)",
@@ -52,6 +56,18 @@ _COLUMN_MIGRATIONS: list[str] = [
     "ALTER TABLE shop_alerts ADD COLUMN IF NOT EXISTS new_address VARCHAR(300)",
     "ALTER TABLE shop_alerts ADD COLUMN IF NOT EXISTS starts_at TIMESTAMPTZ",
     "ALTER TABLE shop_alerts ADD COLUMN IF NOT EXISTS ends_at TIMESTAMPTZ",
+    # shop_photos: real uploaded bytes, not just links (REQ-SHOP-1)
+    "ALTER TABLE shop_photos ADD COLUMN IF NOT EXISTS data BYTEA",
+    "ALTER TABLE shop_photos ADD COLUMN IF NOT EXISTS content_type VARCHAR(100)",
+    "ALTER TABLE shop_photos ADD COLUMN IF NOT EXISTS size_bytes INTEGER",
+    # shops: admin verification queue (REQ-ADMIN-1)
+    "ALTER TABLE shops ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE shops ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ",
+    "ALTER TABLE shops ADD COLUMN IF NOT EXISTS verified_by VARCHAR(36)",
+    # products: discounts and photos (shop-owner storefront)
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_percent INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS image BYTEA",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS has_image BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 
