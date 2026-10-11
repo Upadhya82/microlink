@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import '../../../core/widgets/photo_picker_field.dart';
+import '../../../core/network/multipart_upload.dart';
 
+import '../../../core/utils/media_url.dart';
 import '../../../core/models/ad.dart';
 import '../../../core/models/shop.dart';
 import '../../../core/network/api_client.dart';
@@ -36,7 +39,7 @@ class _SubmitAdScreenState extends State<SubmitAdScreen> {
   final _advertiserController = TextEditingController();
   final _titleController = TextEditingController();
   final _subtitleController = TextEditingController();
-  final _imageUrlController = TextEditingController();
+  PickedFile? _banner;
 
   /// `null` = the ad promotes an outside company with no MicroLink shop.
   String? _linkedShopId;
@@ -62,7 +65,7 @@ class _SubmitAdScreenState extends State<SubmitAdScreen> {
     _advertiserController.dispose();
     _titleController.dispose();
     _subtitleController.dispose();
-    _imageUrlController.dispose();
+
     super.dispose();
   }
 
@@ -137,15 +140,23 @@ class _SubmitAdScreenState extends State<SubmitAdScreen> {
     setState(() => _submitting = true);
     try {
       final subtitle = _subtitleController.text.trim();
-      await ApiClient.instance.post('/ads', body: {
+      final created = await ApiClient.instance.post('/ads', body: {
         'advertiser_name': _advertiserController.text.trim(),
         'title': _titleController.text.trim(),
         if (subtitle.isNotEmpty) 'subtitle': subtitle,
-        'image_url': _imageUrlController.text.trim(),
         if (_linkedShopId != null) 'shop_id': _linkedShopId,
         if (_startDate != null) 'start_date': _startDate!.toUtc().toIso8601String(),
         if (_endDate != null) 'end_date': _endDate!.toUtc().toIso8601String(),
-      });
+      }) as Map<String, dynamic>;
+
+      // The copy is saved; the banner follows as its own call.
+      final banner = _banner;
+      if (banner != null) {
+        await MultipartUpload.send(
+          path: '/ads/${created['id']}/image',
+          file: banner,
+        );
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -154,7 +165,7 @@ class _SubmitAdScreenState extends State<SubmitAdScreen> {
       );
       _titleController.clear();
       _subtitleController.clear();
-      _imageUrlController.clear();
+      _banner = null;
       setState(() {
         _startDate = null;
         _endDate = null;
@@ -243,21 +254,12 @@ class _SubmitAdScreenState extends State<SubmitAdScreen> {
             maxLines: 2,
           ),
           const SizedBox(height: AppSpacing.md),
-          AppTextField(
-            controller: _imageUrlController,
-            label: 'Banner image URL',
-            hint: 'https://…',
-            prefixIcon: Icons.image_outlined,
-            keyboardType: TextInputType.url,
-            validator: (v) {
-              final value = v?.trim() ?? '';
-              if (value.isEmpty) return 'Banner image URL is required';
-              final uri = Uri.tryParse(value);
-              if (uri == null || !uri.isAbsolute || !uri.hasScheme) {
-                return 'Enter a full URL starting with http(s)://';
-              }
-              return null;
-            },
+          PhotoPickerField(
+            file: _banner,
+            label: 'Banner image',
+            hint: 'The picture customers see on the Home screen',
+            enabled: !_submitting,
+            onChanged: (f) => setState(() => _banner = f),
           ),
           const SizedBox(height: AppSpacing.md),
           DropdownButtonFormField<String?>(
@@ -388,7 +390,7 @@ class _SubmissionCard extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(AppRadius.input),
             child: Image.network(
-              ad.imageUrl,
+              mediaUrl(ad.imageUrl) ?? ad.imageUrl,
               width: 56,
               height: 56,
               fit: BoxFit.cover,

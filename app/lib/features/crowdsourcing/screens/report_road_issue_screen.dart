@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../../core/widgets/photo_picker_field.dart';
+import '../../../core/network/multipart_upload.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../../core/models/shop.dart' show formatCategoryLabel;
@@ -6,6 +8,7 @@ import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors_extension.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../location/widgets/location_field.dart';
 import '../../../core/utils/validators.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
@@ -46,12 +49,13 @@ class ReportRoadIssueScreen extends StatefulWidget {
 class _ReportRoadIssueScreenState extends State<ReportRoadIssueScreen> {
   final _formKey = GlobalKey<FormState>();
   final _descController = TextEditingController();
-  final _photoUrlController = TextEditingController();
+  PickedFile? _photo;
 
   String? _conditionType;
   String _severity = 'medium';
   double? _latitude;
   double? _longitude;
+  String? _pickedAddress;
   bool _locating = false;
   bool _isSubmitting = false;
   bool _success = false;
@@ -64,7 +68,7 @@ class _ReportRoadIssueScreenState extends State<ReportRoadIssueScreen> {
   @override
   void dispose() {
     _descController.dispose();
-    _photoUrlController.dispose();
+
     super.dispose();
   }
 
@@ -115,15 +119,36 @@ class _ReportRoadIssueScreenState extends State<ReportRoadIssueScreen> {
 
     setState(() => _isSubmitting = true);
     try {
-      final photoUrl = _photoUrlController.text.trim();
-      await ApiClient.instance.post('/crowdsource/road-reports', body: {
-        'latitude': _latitude,
-        'longitude': _longitude,
-        'condition_type': _conditionType,
-        'description': _descController.text.trim(),
-        'severity': _severity,
-        if (photoUrl.isNotEmpty) 'image_url': photoUrl,
-      });
+      final created = await ApiClient.instance.post(
+        '/crowdsource/road-reports',
+        body: {
+          'latitude': _latitude,
+          'longitude': _longitude,
+          'condition_type': _conditionType,
+          'description': _descController.text.trim(),
+          'severity': _severity,
+        },
+      ) as Map<String, dynamic>;
+
+      // The report is saved; the photo is a separate call so a failed upload
+      // on a weak rural connection cannot lose the report itself.
+      final photo = _photo;
+      if (photo != null) {
+        try {
+          await MultipartUpload.send(
+            path: '/crowdsource/road-reports/${created['id']}/photo',
+            file: photo,
+          );
+        } catch (_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Report sent, but the photo did not upload.'),
+              ),
+            );
+          }
+        }
+      }
       if (!mounted) return;
       setState(() => _success = true);
     } on ApiException catch (e) {
@@ -136,7 +161,7 @@ class _ReportRoadIssueScreenState extends State<ReportRoadIssueScreen> {
 
   void _reset() {
     _descController.clear();
-    _photoUrlController.clear();
+    _photo = null;
     setState(() {
       _conditionType = null;
       _severity = 'medium';
@@ -241,11 +266,19 @@ class _ReportRoadIssueScreenState extends State<ReportRoadIssueScreen> {
             const SizedBox(height: AppSpacing.lg),
             Text('Location', style: Theme.of(context).textTheme.labelLarge),
             const SizedBox(height: AppSpacing.sm),
-            _MapLocationPreview(
-              hasLocation: hasLocation,
+            LocationField(
+              latitude: _latitude,
+              longitude: _longitude,
+              address: _pickedAddress,
               isLocating: _locating,
-              actionLabel: 'Use my location',
-              onTap: _locating ? null : _useCurrentLocation,
+              pickerTitle: 'Where is the issue?',
+              confirmLabel: 'Report here',
+              onUseMyLocation: _useCurrentLocation,
+              onPicked: (picked) => setState(() {
+                _latitude = picked.latitude;
+                _longitude = picked.longitude;
+                _pickedAddress = picked.address;
+              }),
             ),
             const SizedBox(height: AppSpacing.xs),
             Text(
@@ -266,12 +299,11 @@ class _ReportRoadIssueScreenState extends State<ReportRoadIssueScreen> {
               validator: (v) => Validators.required(v, field: 'Description'),
             ),
             const SizedBox(height: AppSpacing.lg),
-            AppTextField(
-              controller: _photoUrlController,
-              label: 'Photo URL (optional)',
-              hint: 'https://…',
-              prefixIcon: Icons.image_outlined,
-              keyboardType: TextInputType.url,
+            PhotoPickerField(
+              file: _photo,
+              label: 'Photo of the road (optional)',
+              enabled: !_isSubmitting,
+              onChanged: (f) => setState(() => _photo = f),
             ),
             const SizedBox(height: AppSpacing.xxl),
             _DangerButton(
@@ -460,81 +492,6 @@ class _IssueTile extends StatelessWidget {
   }
 }
 
-/// A map-preview-style placeholder for the issue location. Tapping the
-/// action chip (or the box itself) triggers whatever location logic the
-/// parent screen wires up -- this widget is purely presentational.
-class _MapLocationPreview extends StatelessWidget {
-  final bool hasLocation;
-  final bool isLocating;
-  final String actionLabel;
-  final VoidCallback? onTap;
-
-  const _MapLocationPreview({
-    required this.hasLocation,
-    required this.isLocating,
-    required this.actionLabel,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final radius = BorderRadius.circular(AppRadius.card - 2);
-    return InkWell(
-      onTap: onTap,
-      borderRadius: radius,
-      child: Container(
-        height: 130,
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: colorScheme.primaryContainer.withValues(alpha: 0.45),
-          borderRadius: radius,
-          border: Border.all(color: colorScheme.outlineVariant),
-        ),
-        child: Stack(
-          children: [
-            Center(
-              child: Icon(
-                Icons.location_on,
-                size: 34,
-                color: hasLocation ? colorScheme.error : colorScheme.error.withValues(alpha: 0.55),
-              ),
-            ),
-            if (isLocating)
-              Positioned.fill(
-                child: Center(
-                  child: SizedBox(
-                    height: 22,
-                    width: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2.4, color: colorScheme.error),
-                  ),
-                ),
-              ),
-            Positioned(
-              bottom: 10,
-              right: 10,
-              child: Material(
-                color: colorScheme.surface,
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                elevation: 1,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
-                  child: Text(
-                    actionLabel,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: colorScheme.onSurface,
-                        ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 /// A full-width primary button styled in the app's error color, used for
 /// this screen's "Submit Report" action since it's a warning/report flow.

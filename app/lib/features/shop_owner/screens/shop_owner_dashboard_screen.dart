@@ -1,13 +1,19 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../core/widgets/stagger_in.dart';
+import '../../../core/models/order.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/models/shop.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/multipart_upload.dart';
 import '../../../core/network/session_manager.dart';
 import '../../../core/theme/app_colors_extension.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../location/widgets/location_field.dart';
+import '../../../core/utils/media_url.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/utils/route_args.dart';
 import '../../../core/utils/validators.dart';
@@ -485,7 +491,6 @@ class _ShopFormSheetState extends State<_ShopFormSheet> {
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.existingShop != null;
-    final hasLocation = _latitude != null && _longitude != null;
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -579,22 +584,25 @@ class _ShopFormSheetState extends State<_ShopFormSheet> {
                     'Location',
                     style: Theme.of(context).textTheme.labelLarge,
                   ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    hasLocation
-                        ? 'Lat: ${_latitude!.toStringAsFixed(5)}, Lng: ${_longitude!.toStringAsFixed(5)}'
-                        : 'No location set yet',
-                    style: TextStyle(color: context.appColors.textSecondary),
-                  ),
                   const SizedBox(height: AppSpacing.sm),
-                  AppButton(
-                    label: hasLocation
-                        ? 'Update Current Location'
-                        : 'Use My Current Location',
-                    icon: Icons.my_location,
-                    variant: AppButtonVariant.outlined,
-                    isLoading: _locating,
-                    onPressed: _locating ? null : _useCurrentLocation,
+                  // A shop owner is often not standing in their shop when
+                  // they register it, so "use my location" alone is not
+                  // enough -- they can drop the pin on the map instead.
+                  LocationField(
+                    latitude: _latitude,
+                    longitude: _longitude,
+                    isLocating: _locating,
+                    pickerTitle: 'Where is your shop?',
+                    confirmLabel: 'Use this location',
+                    onUseMyLocation: _useCurrentLocation,
+                    onPicked: (picked) => setState(() {
+                      _latitude = picked.latitude;
+                      _longitude = picked.longitude;
+                      if (_addressController.text.trim().isEmpty &&
+                          picked.address.isNotEmpty) {
+                        _addressController.text = picked.address;
+                      }
+                    }),
                   ),
                   const SizedBox(height: AppSpacing.xl),
                   AppButton(
@@ -687,7 +695,7 @@ class _ShopWorkspaceState extends State<_ShopWorkspace> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -718,6 +726,7 @@ class _ShopWorkspaceState extends State<_ShopWorkspace> {
             tabAlignment: TabAlignment.start,
             tabs: [
               Tab(text: 'Overview'),
+              Tab(text: 'Orders'),
               Tab(text: 'Products'),
               Tab(text: 'Alerts'),
               Tab(text: 'Analytics'),
@@ -733,6 +742,7 @@ class _ShopWorkspaceState extends State<_ShopWorkspace> {
                   onToggleStatus: _toggleStatus,
                   onEditShop: _openEditForm,
                 ),
+                _OrdersTab(shopId: _shop.id),
                 _ProductsTab(shopId: _shop.id),
                 _AlertsTab(shopId: _shop.id),
                 _AnalyticsTab(shopId: _shop.id),
@@ -774,10 +784,77 @@ class _OverviewTab extends StatefulWidget {
 class _OverviewTabState extends State<_OverviewTab> {
   ViewState<List<ShopAlert>> _state = const ViewLoading();
 
+  /// What customers actually wrote. The rating average alone tells the owner
+  /// that something is wrong but never what, so the text is the useful part.
+  List<Map<String, dynamic>> _reviews = const [];
+
+  Future<void> _loadReviews() async {
+    try {
+      final response =
+          await ApiClient.instance.get('/shops/${widget.shop.id}/reviews');
+      final rows = (response as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      if (!mounted) return;
+      setState(() => _reviews = rows);
+    } catch (_) {
+      // The alerts card is the primary content here; a failed review fetch
+      // should not blank the whole tab.
+    }
+  }
+
+  Future<void> _reply(Map<String, dynamic> review) async {
+    final controller = TextEditingController(
+      text: (review['owner_reply'] as String?) ?? '',
+    );
+    final text = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reply to this review'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            hintText: 'Thank you for your feedback',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Send reply'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (text == null || text.isEmpty) return;
+    try {
+      await ApiClient.instance.post(
+        '/shops/${widget.shop.id}/reviews/${review['id']}/reply',
+        body: {'reply': text},
+      );
+      await _loadReviews();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Reply sent')));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _load();
+    _loadReviews();
   }
 
   Future<void> _load() async {
@@ -870,6 +947,27 @@ class _OverviewTabState extends State<_OverviewTab> {
                   (alert) => Padding(
                     padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                     child: _AlertPreviewCard(alert: alert),
+                  ),
+                ),
+              const SizedBox(height: AppSpacing.xl),
+              Text(
+                'Customer reviews',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              if (_reviews.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
+                  child: Text(
+                    'No reviews yet.',
+                    style: TextStyle(color: context.appColors.textSecondary),
+                  ),
+                )
+              else
+                ..._reviews.map(
+                  (review) => Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: _ReviewCard(review: review, onReply: () => _reply(review)),
                   ),
                 ),
             ],
@@ -1211,6 +1309,8 @@ class _ProductFormSheetState extends State<_ProductFormSheet> {
   late final TextEditingController _stockController;
   late final TextEditingController _categoryController;
   late bool _isAvailable;
+  late int _discountPercent;
+  PickedFile? _pickedImage;
   bool _isSubmitting = false;
 
   @override
@@ -1227,6 +1327,7 @@ class _ProductFormSheetState extends State<_ProductFormSheet> {
     );
     _categoryController = TextEditingController(text: existing?.category ?? '');
     _isAvailable = existing?.isAvailable ?? true;
+    _discountPercent = existing?.discountPercent ?? 0;
   }
 
   @override
@@ -1260,18 +1361,31 @@ class _ProductFormSheetState extends State<_ProductFormSheet> {
       'price': double.parse(_priceController.text.trim()),
       'stock_quantity': int.parse(_stockController.text.trim()),
       'category': _categoryController.text.trim(),
+      'discount_percent': _discountPercent,
       if (isEdit) 'is_available': _isAvailable,
     };
     try {
+      String productId;
       if (isEdit) {
         await ApiClient.instance.patch(
           '/shops/${widget.shopId}/products/${widget.existingProduct!.id}',
           body: body,
         );
+        productId = widget.existingProduct!.id;
       } else {
-        await ApiClient.instance.post(
+        final created = await ApiClient.instance.post(
           '/shops/${widget.shopId}/products',
           body: body,
+        );
+        productId = (created as Map)['id'] as String;
+      }
+
+      // Separate call: the product must exist before it can own an image,
+      // and a failed upload must not discard the details just typed.
+      if (_pickedImage != null) {
+        await MultipartUpload.send(
+          path: '/shops/${widget.shopId}/products/$productId/image',
+          file: _pickedImage!,
         );
       }
       if (!mounted) return;
@@ -1343,6 +1457,27 @@ class _ProductFormSheetState extends State<_ProductFormSheet> {
                     controller: _categoryController,
                     label: 'Category',
                     validator: (v) => Validators.required(v, field: 'Category'),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _ProductPhotoPicker(
+                    picked: _pickedImage,
+                    existingUrl: mediaUrl(widget.existingProduct?.imageUrl),
+                    onPick: () async {
+                      try {
+                        final file = await MultipartUpload.pick();
+                        if (file != null) setState(() => _pickedImage = file);
+                      } on ApiException catch (e) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context)
+                            .showSnackBar(SnackBar(content: Text(e.message)));
+                      }
+                    },
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _DiscountSlider(
+                    percent: _discountPercent,
+                    price: double.tryParse(_priceController.text.trim()) ?? 0,
+                    onChanged: (value) => setState(() => _discountPercent = value),
                   ),
                   if (isEdit) ...[
                     const SizedBox(height: AppSpacing.md),
@@ -1784,6 +1919,391 @@ class _ViewsBarChart extends StatelessWidget {
           );
         }).toList(),
       ),
+    );
+  }
+}
+
+
+/// Product photo picker for the owner's product form. One photo per product:
+/// on a phone listing the thumbnail is what sells the item, and asking a
+/// one-room shop owner to curate a gallery is friction they will not accept.
+class _ProductPhotoPicker extends StatelessWidget {
+  final PickedFile? picked;
+  final String? existingUrl;
+  final VoidCallback onPick;
+
+  const _ProductPhotoPicker({
+    required this.picked,
+    required this.existingUrl,
+    required this.onPick,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final hasImage = picked != null || existingUrl != null;
+
+    return Row(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.input),
+          child: SizedBox(
+            width: 68,
+            height: 68,
+            child: picked != null
+                ? Image.memory(picked!.bytes, fit: BoxFit.cover)
+                : existingUrl != null
+                    ? Image.network(
+                        existingUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => ColoredBox(
+                          color: colorScheme.surfaceContainerHighest,
+                          child: const Icon(Icons.broken_image_outlined),
+                        ),
+                      )
+                    : ColoredBox(
+                        color: colorScheme.surfaceContainerHighest,
+                        child: Icon(
+                          Icons.image_outlined,
+                          color: context.appColors.textSecondary,
+                        ),
+                      ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: onPick,
+            icon: const Icon(Icons.photo_camera_outlined, size: 18),
+            label: Text(hasImage ? 'Change photo' : 'Add photo'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Discount control, showing the resulting price as the owner drags so they
+/// can see what the customer will actually pay before saving.
+class _DiscountSlider extends StatelessWidget {
+  final int percent;
+  final double price;
+  final ValueChanged<int> onChanged;
+
+  const _DiscountSlider({
+    required this.percent,
+    required this.price,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final finalPrice = price * (100 - percent) / 100;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('Discount', style: Theme.of(context).textTheme.labelLarge),
+            const Spacer(),
+            if (percent > 0)
+              Text(
+                'Rs. ${price.toStringAsFixed(2)} to Rs. ${finalPrice.toStringAsFixed(2)}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colors.success,
+                      fontWeight: FontWeight.w700,
+                    ),
+              )
+            else
+              Text(
+                'No discount',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: colors.textSecondary),
+              ),
+          ],
+        ),
+        Slider(
+          value: percent.toDouble(),
+          // Capped at 90 to match shop-service: a 100% discount is a
+          // giveaway, and a number that high is nearly always a typo.
+          max: 90,
+          divisions: 18,
+          label: '$percent%',
+          onChanged: (value) => onChanged(value.round()),
+        ),
+      ],
+    );
+  }
+}
+
+
+/// One customer review: the stars, what they wrote, and the owner's reply.
+class _ReviewCard extends StatelessWidget {
+  final Map<String, dynamic> review;
+  final VoidCallback onReply;
+
+  const _ReviewCard({required this.review, required this.onReply});
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colors = context.appColors;
+    final rating = (review['rating'] as num?)?.toInt() ?? 0;
+    final comment = (review['comment'] as String?)?.trim() ?? '';
+    final reply = (review['owner_reply'] as String?)?.trim() ?? '';
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              for (var i = 1; i <= 5; i++)
+                Icon(
+                  i <= rating ? Icons.star_rounded : Icons.star_border_rounded,
+                  size: 18,
+                  color: Colors.amber,
+                ),
+              const Spacer(),
+              TextButton(
+                onPressed: onReply,
+                child: Text(reply.isEmpty ? 'Reply' : 'Edit reply'),
+              ),
+            ],
+          ),
+          Text(
+            comment.isEmpty ? 'No comment left with this rating.' : comment,
+            style: comment.isEmpty
+                ? textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary, fontStyle: FontStyle.italic)
+                : textTheme.bodyMedium,
+          ),
+          if (reply.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(AppRadius.input),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.reply_rounded, size: 16, color: colors.textSecondary),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(reply, style: textTheme.bodySmall),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Orders tab
+// ---------------------------------------------------------------------------
+
+/// The shop's orders, and -- the reason this tab exists -- the pickup code.
+///
+/// The delivery agent has to read that code off the shop owner's screen
+/// before they can collect a parcel. Without this tab the owner had nowhere
+/// to look, so every pickup attempt failed with "that code does not match".
+class _OrdersTab extends StatefulWidget {
+  final String shopId;
+
+  const _OrdersTab({required this.shopId});
+
+  @override
+  State<_OrdersTab> createState() => _OrdersTabState();
+}
+
+class _OrdersTabState extends State<_OrdersTab> {
+  ViewState<List<DeliveryOrder>> _state = const ViewLoading();
+  Timer? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    // An agent can arrive at any moment, so the list keeps itself current
+    // rather than relying on the owner to pull to refresh.
+    _poll = Timer.periodic(const Duration(seconds: 15), (_) => _load(quiet: true));
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load({bool quiet = false}) async {
+    if (!quiet) setState(() => _state = const ViewLoading());
+    try {
+      final response =
+          await ApiClient.instance.get('/delivery/orders/shop/${widget.shopId}');
+      final orders = (response as List)
+          .map((e) => DeliveryOrder.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      if (!mounted) return;
+      setState(() => _state = ViewData(orders));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _state = ViewError(e.message));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _state = const ViewError('Could not load your orders.'));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: AsyncStateView<List<DeliveryOrder>>(
+        state: _state,
+        onRetry: _load,
+        isEmpty: (data) => data.isEmpty,
+        emptyTitle: 'No orders yet',
+        emptyMessage: 'Orders customers place from your shop appear here.',
+        loadingSkeleton: const SkeletonList(itemCount: 3),
+        builder: (context, orders) {
+          // Orders an agent is on the way for come first; the owner is
+          // usually opening this tab because someone is at the counter.
+          final sorted = [...orders]..sort((a, b) {
+              int rank(DeliveryOrder o) => o.status == 'accepted' ? 0 : 1;
+              final byRank = rank(a).compareTo(rank(b));
+              return byRank != 0 ? byRank : b.createdAt.compareTo(a.createdAt);
+            });
+          return ListView.separated(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            itemCount: sorted.length,
+            separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
+            itemBuilder: (context, i) =>
+                StaggerIn(index: i, child: _ShopOrderCard(order: sorted[i])),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ShopOrderCard extends StatelessWidget {
+  final DeliveryOrder order;
+
+  const _ShopOrderCard({required this.order});
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+    final colors = context.appColors;
+    final code = order.pickupCode;
+    // Only while an agent is actually coming to collect it.
+    final awaitingPickup = order.status == 'accepted' && code != null;
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Order #${order.id.substring(0, 6).toUpperCase()}',
+                  style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              _OrderStatusChip(status: order.status),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            order.deliveryAddress,
+            style: textTheme.bodySmall?.copyWith(color: colors.textSecondary),
+          ),
+          Text(
+            'Rs. ${order.totalAmount.toStringAsFixed(2)}',
+            style: textTheme.bodySmall?.copyWith(color: colors.textSecondary),
+          ),
+          if (awaitingPickup) ...[
+            const SizedBox(height: AppSpacing.md),
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(AppRadius.input),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.pin_rounded, color: colorScheme.primary),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Pickup code',
+                          style: textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: colorScheme.onPrimaryContainer,
+                          ),
+                        ),
+                        Text(
+                          'Read this out to the delivery agent.',
+                          style: textTheme.labelSmall
+                              ?.copyWith(color: colorScheme.onPrimaryContainer),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    code,
+                    style: textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 4,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+
+/// A small coloured chip for an order's current state.
+class _OrderStatusChip extends StatelessWidget {
+  final String status;
+
+  const _OrderStatusChip({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final (background, foreground) = switch (status) {
+      'delivered' => (Colors.green.withValues(alpha: 0.15), Colors.green),
+      'cancelled' => (scheme.errorContainer, scheme.onErrorContainer),
+      'accepted' => (scheme.primaryContainer, scheme.onPrimaryContainer),
+      _ => (scheme.surfaceContainerHighest, scheme.onSurfaceVariant),
+    };
+    return StatusBadge(
+      label: formatOrderStatusLabel(status),
+      background: background,
+      foreground: foreground,
     );
   }
 }

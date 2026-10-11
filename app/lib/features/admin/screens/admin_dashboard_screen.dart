@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import '../../../core/widgets/photo_picker_field.dart';
+import '../../../core/network/multipart_upload.dart';
 
+import '../../../core/utils/media_url.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors_extension.dart';
@@ -1385,7 +1388,7 @@ class _AdsTabState extends State<_AdsTab> with AutomaticKeepAliveClientMixin {
                           ClipRRect(
                             borderRadius: BorderRadius.circular(AppRadius.input),
                             child: Image.network(
-                              ad.imageUrl,
+                              mediaUrl(ad.imageUrl) ?? ad.imageUrl,
                               width: 56,
                               height: 56,
                               fit: BoxFit.cover,
@@ -1474,7 +1477,7 @@ class _AdEditSheetState extends State<_AdEditSheet> {
   late final TextEditingController _advertiserController;
   late final TextEditingController _titleController;
   late final TextEditingController _subtitleController;
-  late final TextEditingController _imageUrlController;
+  PickedFile? _banner;
   bool _isSubmitting = false;
 
   @override
@@ -1483,7 +1486,7 @@ class _AdEditSheetState extends State<_AdEditSheet> {
     _advertiserController = TextEditingController(text: widget.ad.advertiserName);
     _titleController = TextEditingController(text: widget.ad.title);
     _subtitleController = TextEditingController(text: widget.ad.subtitle);
-    _imageUrlController = TextEditingController(text: widget.ad.imageUrl);
+
   }
 
   @override
@@ -1491,7 +1494,7 @@ class _AdEditSheetState extends State<_AdEditSheet> {
     _advertiserController.dispose();
     _titleController.dispose();
     _subtitleController.dispose();
-    _imageUrlController.dispose();
+
     super.dispose();
   }
 
@@ -1504,9 +1507,17 @@ class _AdEditSheetState extends State<_AdEditSheet> {
           'advertiser_name': _advertiserController.text.trim(),
           'title': _titleController.text.trim(),
           'subtitle': _subtitleController.text.trim(),
-          'image_url': _imageUrlController.text.trim(),
         },
       );
+      // Only sent when the admin actually chose a new banner, so saving a
+      // copy change does not disturb the image already on the ad.
+      final banner = _banner;
+      if (banner != null) {
+        await MultipartUpload.send(
+          path: '/ads/${widget.ad.id}/image',
+          file: banner,
+        );
+      }
       if (!mounted) return;
       Navigator.pop(context, true);
     } on ApiException catch (e) {
@@ -1554,7 +1565,13 @@ class _AdEditSheetState extends State<_AdEditSheet> {
             const SizedBox(height: AppSpacing.md),
             AppTextField(controller: _subtitleController, label: 'Subtitle'),
             const SizedBox(height: AppSpacing.md),
-            AppTextField(controller: _imageUrlController, label: 'Image URL'),
+            PhotoPickerField(
+              file: _banner,
+              label: 'Banner image',
+              hint: 'Choose a file to replace the current banner',
+              enabled: !_isSubmitting,
+              onChanged: (f) => setState(() => _banner = f),
+            ),
             const SizedBox(height: AppSpacing.lg),
             AppButton(
               label: 'Save',

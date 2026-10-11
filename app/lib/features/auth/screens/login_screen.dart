@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/l10n/app_strings.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
@@ -95,14 +96,14 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: AppSpacing.xs),
                 Text(
-                  'Welcome back! Log in to continue.',
+                  tr('auth.welcome_back'),
                   textAlign: TextAlign.center,
                   style: textTheme.bodyMedium,
                 ),
                 const SizedBox(height: AppSpacing.xxxl),
                 AppTextField(
                   controller: _emailController,
-                  label: 'Email',
+                  label: tr('auth.email'),
                   keyboardType: TextInputType.emailAddress,
                   prefixIcon: Icons.email_outlined,
                   validator: Validators.email,
@@ -110,7 +111,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: AppSpacing.lg),
                 AppTextField(
                   controller: _passwordController,
-                  label: 'Password',
+                  label: tr('auth.password'),
                   obscureText: _obscurePassword,
                   prefixIcon: Icons.lock_outline,
                   validator: (value) => Validators.required(value, field: 'Password'),
@@ -123,7 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: AppSpacing.xxl),
                 AppButton(
-                  label: 'Log In',
+                  label: tr('auth.login'),
                   isLoading: _isSubmitting,
                   onPressed: _isSubmitting ? null : _submit,
                 ),

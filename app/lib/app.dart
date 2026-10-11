@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'core/constants/app_constants.dart';
+import 'core/l10n/app_strings.dart';
 import 'core/network/session_manager.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
@@ -13,7 +14,11 @@ class MicroLinkApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([SessionManager.instance, ThemeController.instance]),
+      animation: Listenable.merge([
+        SessionManager.instance,
+        ThemeController.instance,
+        LanguageController.instance,
+      ]),
       builder: (context, _) {
         return MaterialApp(
           title: AppConstants.appName,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/l10n/app_strings.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/models/order.dart';
 import '../../../core/network/api_client.dart';
@@ -65,15 +66,15 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('My Orders')),
+      appBar: AppBar(title: Text(tr('orders.my_orders'))),
       body: RefreshIndicator(
         onRefresh: _load,
         child: AsyncStateView<List<DeliveryOrder>>(
           state: _state,
           onRetry: _load,
           isEmpty: (data) => data.isEmpty,
-          emptyTitle: 'No orders yet',
-          emptyMessage: 'Orders you place with shops will show up here.',
+          emptyTitle: tr('orders.none_title'),
+          emptyMessage: tr('orders.none_body'),
           emptyIcon: Icons.receipt_long_outlined,
           loadingSkeleton: const SkeletonList(),
           builder: (context, orders) => ListView.separated(

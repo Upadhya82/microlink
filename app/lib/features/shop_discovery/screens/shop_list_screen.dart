@@ -5,6 +5,9 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
+import '../../../core/l10n/app_strings.dart';
+import '../../../core/utils/media_url.dart';
+import '../../location/widgets/map_tile_layer.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/models/external_place.dart';
 import '../../../core/models/shop.dart';
@@ -54,6 +57,13 @@ class _ShopListScreenState extends State<ShopListScreen> {
   bool _deliveryOnly = false;
   int _minTrust = 0; // 0 = any, otherwise 1 to 5
   double _radiusKm = 10;
+
+  /// Whether to restrict results to [_radiusKm] of the search origin.
+  ///
+  /// Off means "anywhere in Sri Lanka": someone in Colombo ordering from a
+  /// Kandy shop for a Kandy address is a normal case, and a distance filter
+  /// anchored on where they happen to be standing hides exactly those shops.
+  bool _radiusEnabled = true;
   String _sort = 'smart'; // smart | rating | newest
 
   // device location (optional)
@@ -163,7 +173,11 @@ class _ShopListScreenState extends State<ShopListScreen> {
             ...filters,
             'lat': _lat,
             'lng': _lng,
-            if (_lat != null && _lng != null) 'radius_km': _radiusKm,
+            if (_radiusEnabled && _lat != null && _lng != null)
+              'radius_km': _radiusKm,
+            // Without this the server's default of 50 quietly cuts the list
+            // short, which looks exactly like shops being missing.
+            'limit': 200,
           },
         );
         rawShops = (response as List).map((e) => e as Map<String, dynamic>).toList();
@@ -225,6 +239,9 @@ class _ShopListScreenState extends State<ShopListScreen> {
 
     final origin = _searchOrigin;
     final radius = _landmarkQuery != null ? _landmarkRadiusKm : _radiusKm;
+    // A landmark search is a radius search by definition, so the toggle only
+    // governs the plain "shops near me" case.
+    final limitByRadius = _landmarkQuery != null || _radiusEnabled;
     var entries = cached.entries.where(_matchesFilters).toList();
 
     if (origin.lat != null && origin.lng != null) {
@@ -232,7 +249,7 @@ class _ShopListScreenState extends State<ShopListScreen> {
           .map((e) => e.withDistance(
                 distanceBetweenKm(origin.lat!, origin.lng!, e.shop.latitude, e.shop.longitude),
               ))
-          .where((e) => e.distanceKm! <= radius)
+          .where((e) => !limitByRadius || e.distanceKm! <= radius)
           .toList();
       entries.sort((a, b) {
         final byDistance = a.distanceKm!.compareTo(b.distanceKm!);
@@ -406,6 +423,7 @@ class _ShopListScreenState extends State<ShopListScreen> {
     int tempMinTrust = _minTrust;
     String tempSort = _sort;
     double tempRadius = _landmarkQuery != null ? _landmarkRadiusKm : _radiusKm;
+    bool tempRadiusEnabled = _radiusEnabled;
     final landmarkMode = _landmarkQuery != null;
     final hasLocation = landmarkMode || _lat != null;
 
@@ -456,23 +474,41 @@ class _ShopListScreenState extends State<ShopListScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            landmarkMode ? 'Radius around landmark' : 'Search Radius',
+                            landmarkMode ? 'Radius around landmark' : 'Select radius',
                             style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                           ),
-                          Container(
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: colorScheme.primaryContainer,
-                              borderRadius: BorderRadius.circular(AppRadius.pill),
-                            ),
-                            child: Text(
-                              '${tempRadius.toStringAsFixed(1)} km',
-                              style: textTheme.labelMedium?.copyWith(
-                                color: colorScheme.primary,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (landmarkMode || tempRadiusEnabled)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppSpacing.sm,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.primaryContainer,
+                                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                                  ),
+                                  child: Text(
+                                    '${tempRadius.toStringAsFixed(1)} km',
+                                    style: textTheme.labelMedium?.copyWith(
+                                      color: colorScheme.primary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              // A landmark search is a radius search, so the
+                              // switch would be a lie in that mode.
+                              if (!landmarkMode)
+                                Switch(
+                                  value: tempRadiusEnabled,
+                                  onChanged: hasLocation
+                                      ? (value) =>
+                                          setSheetState(() => tempRadiusEnabled = value)
+                                      : null,
+                                ),
+                            ],
                           ),
                         ],
                       ),
@@ -481,10 +517,19 @@ class _ShopListScreenState extends State<ShopListScreen> {
                         min: 0.5,
                         max: 10,
                         divisions: 19,
-                        onChanged: hasLocation
+                        onChanged: hasLocation && (landmarkMode || tempRadiusEnabled)
                             ? (value) => setSheetState(() => tempRadius = value)
                             : null,
                       ),
+                      if (!landmarkMode && !tempRadiusEnabled)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                          child: Text(
+                            'Showing shops anywhere in Sri Lanka.',
+                            style: textTheme.labelSmall
+                                ?.copyWith(color: sheetContext.appColors.textSecondary),
+                          ),
+                        ),
                       if (!hasLocation)
                         Padding(
                           padding: const EdgeInsets.only(bottom: AppSpacing.sm),
@@ -580,6 +625,7 @@ class _ShopListScreenState extends State<ShopListScreen> {
                                 _landmarkRadiusKm = tempRadius;
                               } else {
                                 _radiusKm = tempRadius;
+                                _radiusEnabled = tempRadiusEnabled;
                               }
                             });
                             _fetchShops();
@@ -606,7 +652,7 @@ class _ShopListScreenState extends State<ShopListScreen> {
     final colors = context.appColors;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Discover Shops')),
+      appBar: AppBar(title: Text(tr('shops.title'))),
       body: Column(
         children: [
           Padding(
@@ -621,7 +667,7 @@ class _ShopListScreenState extends State<ShopListScreen> {
                 Expanded(
                   child: AppTextField(
                     controller: _searchController,
-                    label: 'Search shops',
+                    label: tr('shops.search_hint'),
                     hint: 'Shop, category or product...',
                     prefixIcon: Icons.search,
                     onChanged: _onSearchChanged,
@@ -643,7 +689,7 @@ class _ShopListScreenState extends State<ShopListScreen> {
               child: _landmarkQuery == null
                   ? ActionChip(
                       avatar: const Icon(Icons.place_outlined, size: 18),
-                      label: const Text('Search near a landmark'),
+                      label: Text(tr('shops.near_landmark')),
                       onPressed: _askLandmark,
                     )
                   : InputChip(
@@ -689,8 +735,8 @@ class _ShopListScreenState extends State<ShopListScreen> {
                 state: _state,
                 onRetry: _fetchShops,
                 isEmpty: (data) => data.isEmpty,
-                emptyTitle: 'No shops found',
-                emptyMessage: 'Try a different search, or widen the radius in the filters.',
+                emptyTitle: tr('shops.none_title'),
+                emptyMessage: tr('shops.none_body'),
                 emptyIcon: Icons.storefront_outlined,
                 loadingSkeleton: const SkeletonList(),
                 builder: (context, shops) {
@@ -825,7 +871,7 @@ class _LandmarkDialogState extends State<_LandmarkDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Search near a landmark'),
+      title: Text(tr('shops.near_landmark')),
       content: TextField(
         controller: _controller,
         autofocus: true,
@@ -1019,10 +1065,7 @@ class _ShopMapView extends StatelessWidget {
         FlutterMap(
           options: MapOptions(initialCenter: center, initialZoom: 14),
           children: [
-            TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-              userAgentPackageName: 'com.microlink.app',
-            ),
+            MapTileLayer(),
             MarkerLayer(
               markers: [
                 for (final entry in shops)
@@ -1277,7 +1320,7 @@ class _ShopThumbnail extends StatelessWidget {
     final url = photoUrl ?? shop.imageUrl;
     if (url != null && url.isNotEmpty) {
       return Image.network(
-        url,
+        mediaUrl(url) ?? url,
         width: _size,
         fit: BoxFit.cover,
         errorBuilder: (context, error, stackTrace) => _fallback(context),
