@@ -17,6 +17,7 @@ from app.schemas import (
     RouteLeg,
     RouteRequest,
     RouteResponse,
+    RouteStep,
 )
 
 router = APIRouter(prefix="/navigation", tags=["navigation"])
@@ -78,13 +79,18 @@ async def compute_route(
     # turn-by-turn road shape lives in `polyline`.
     legs: list[RouteLeg] = [_leg(start, end, speed_kmh) for start, end in zip(points, points[1:])]
 
-    routed = await road_route(points, payload.mode)
+    routed = await road_route(points, payload.mode, payload.preference, payload.language)
     if routed is not None:
-        polyline, total_distance_km, total_duration_minutes = routed
+        polyline, total_distance_km, total_duration_minutes, raw_steps = routed
+        routed_by = "osrm"
     else:
         polyline = points
         total_distance_km = sum(leg.distance_km for leg in legs)
         total_duration_minutes = sum(leg.duration_minutes for leg in legs)
+        # No road geometry means no turns to announce; an empty list is
+        # honest, where faking a single "head out" step would not be.
+        raw_steps = []
+        routed_by = "straight_line"
 
     voice_locale = get_voice_locale(payload.language)
 
@@ -109,6 +115,9 @@ async def compute_route(
         legs=legs,
         polyline=polyline,
         voice_locale=voice_locale,
+        steps=[RouteStep(**step) for step in raw_steps],
+        preference=payload.preference,
+        routed_by=routed_by,
     )
 
 

@@ -13,6 +13,7 @@ import logging
 import httpx
 
 from app.config import settings
+from app.instructions import pick_route, steps_from_legs
 from app.schemas import Coordinate
 
 logger = logging.getLogger(settings.service_name)
@@ -23,20 +24,31 @@ _MODE_SPEED_KMH = {"walking": 4.8, "cycling": 15.0, "driving": 30.0}
 
 
 async def road_route(
-    points: list[Coordinate], mode: str
-) -> tuple[list[Coordinate], float, float] | None:
+    points: list[Coordinate],
+    mode: str,
+    preference: str = "fastest",
+    language: str = "en",
+) -> tuple[list[Coordinate], float, float, list[dict]] | None:
     """Ask OSRM for a route through ``points`` that follows real streets.
 
-    Returns ``(polyline, distance_km, duration_minutes)`` where ``polyline`` is
-    the full road geometry, or ``None`` if OSRM is unreachable or has no route
-    (points in the sea, no connecting road, network down, ...).
+    Returns ``(polyline, distance_km, duration_minutes, steps)`` where
+    ``polyline`` is the full road geometry and ``steps`` are the turn-by-turn
+    instructions, or ``None`` if OSRM is unreachable or has no route (points
+    in the sea, no connecting road, network down, ...).
     """
     if len(points) < 2:
         return None
 
     coordinates = ";".join(f"{point.lng},{point.lat}" for point in points)
     url = f"{settings.osrm_base_url}/route/v1/driving/{coordinates}"
-    params = {"overview": "full", "geometries": "geojson", "steps": "false"}
+    # Alternatives only exist for a plain A->B request; OSRM ignores the flag
+    # once there are waypoints, so asking for it then just wastes bytes.
+    params = {
+        "overview": "full",
+        "geometries": "geojson",
+        "steps": "true",
+        "alternatives": "true" if len(points) == 2 else "false",
+    }
 
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
@@ -53,7 +65,9 @@ async def road_route(
     if data.get("code") != "Ok" or not data.get("routes"):
         return None
 
-    route = data["routes"][0]
+    route = pick_route(data["routes"], preference)
+    if route is None:
+        return None
     line = route.get("geometry", {}).get("coordinates", [])
     if len(line) < 2:
         return None
@@ -68,4 +82,5 @@ async def road_route(
         speed_kmh = _MODE_SPEED_KMH.get(mode, _MODE_SPEED_KMH["walking"])
         duration_minutes = (distance_km / speed_kmh) * 60.0
 
-    return polyline, distance_km, duration_minutes
+    steps = steps_from_legs(route.get("legs") or [], language)
+    return polyline, distance_km, duration_minutes, steps
