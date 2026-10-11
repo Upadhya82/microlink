@@ -69,6 +69,13 @@ class Order(Base):
         Enum(OrderStatus, name="order_status"), default=OrderStatus.pending, nullable=False
     )
     total_amount: Mapped[float] = mapped_column(Float, nullable=False)
+    # Handover verification (two codes, two moments):
+    #   pickup_code   shown to the SHOP OWNER, typed in by the agent at collection
+    #   delivery_code shown to the CUSTOMER,   typed in by the agent at handover
+    # Each one proves the agent physically met that person, which a status
+    # button alone cannot. Never returned to the agent -- see OrderResponse.
+    pickup_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    delivery_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now

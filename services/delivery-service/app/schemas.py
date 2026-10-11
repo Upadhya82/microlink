@@ -57,6 +57,9 @@ class OrderCreateRequest(BaseModel):
 
 class OrderStatusUpdateRequest(BaseModel):
     status: Literal["accepted", "picked_up", "in_transit", "delivered", "cancelled"]
+    # Required for picked_up (the shop owner's code) and delivered (the
+    # customer's). Ignored for the other transitions.
+    code: str | None = Field(default=None, max_length=8)
 
 
 class OrderResponse(BaseModel):
@@ -72,6 +75,9 @@ class OrderResponse(BaseModel):
     delivery_lng: float
     status: str
     total_amount: float
+    # Only ever populated for the person who is supposed to read it out.
+    pickup_code: str | None = None
+    delivery_code: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -83,8 +89,29 @@ class OrderResponse(BaseModel):
         return value
 
     @classmethod
-    def from_model(cls, order) -> "OrderResponse":
-        return cls.model_validate(order)
+    def from_model(
+        cls,
+        order,
+        *,
+        viewer_id: str | None = None,
+        viewer_role: str | None = None,
+        is_shop_owner: bool = False,
+    ):
+        """Build the response, revealing each code only to the person who
+        must read it aloud.
+
+        The agent types the codes in, so showing them to the agent would let
+        a dishonest one mark an order collected and delivered without ever
+        meeting anyone -- which is the whole thing these codes exist to stop.
+        """
+        response = cls.model_validate(order)
+        is_customer = viewer_id is not None and viewer_id == order.customer_id
+        is_admin = viewer_role == "admin"
+        # The shop owner is identified by shop-service, not here; admins get
+        # both for support, and the customer gets their own.
+        response.pickup_code = order.pickup_code if (is_admin or is_shop_owner) else None
+        response.delivery_code = order.delivery_code if (is_customer or is_admin) else None
+        return response
 
 
 class OrderEventResponse(BaseModel):
