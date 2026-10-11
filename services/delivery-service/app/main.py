@@ -5,8 +5,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import Base, SessionLocal, engine, run_light_migrations
+from app.database import Base, SessionLocal, engine
 from app.expiry import run_expiry_loop
+from app.migrations import run_startup_migrations
 from app.routers import agents_router, orders_router
 
 logging.basicConfig(level=logging.INFO)
@@ -14,8 +15,10 @@ logging.basicConfig(level=logging.INFO)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # create_all makes any missing TABLE; run_startup_migrations then adds any
+    # missing COLUMN to tables that an older version of this service created.
     Base.metadata.create_all(bind=engine)
-    run_light_migrations(engine)
+    run_startup_migrations(engine)
     sweeper = asyncio.create_task(run_expiry_loop(SessionLocal))
     try:
         yield
@@ -27,7 +30,7 @@ async def lifespan(app: FastAPI):
             pass
 
 
-app = FastAPI(title="MicroLink Delivery Service", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="MicroLink Delivery Service", version="1.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
 import '../../location/widgets/map_tile_layer.dart';
@@ -15,6 +16,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/rating_chip.dart';
 
@@ -33,6 +35,13 @@ class DeliveryTrackingScreen extends StatefulWidget {
 class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
   ViewState<DeliveryOrder> _state = const ViewLoading();
   bool _updatingStatus = false;
+  bool _notifying = false;
+  Timer? _pollTimer;
+
+  // Customer rating of the agent, shown once the order is delivered.
+  int _selectedRating = 0;
+  bool _submittingRating = false;
+  final _ratingCommentController = TextEditingController();
 
   // Best-effort lookups for the driver-info row -- kept separate from
   // `_state` since they're a minor enhancement, not core order data, and a
@@ -44,28 +53,50 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
   void initState() {
     super.initState();
     _fetchOrder();
+    // SRS REQ-DELIV-5: the customer sees the status change without having to
+    // pull to refresh. (A live agent location on the map is "future scope" in
+    // the SRS, so only the status is polled.)
+    _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) => _pollOrder());
   }
 
-  Future<void> _fetchOrder() async {
-    setState(() => _state = const ViewLoading());
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _ratingCommentController.dispose();
+    super.dispose();
+  }
+
+  void _pollOrder() {
+    final current = _state;
+    if (_updatingStatus || current is! ViewData<DeliveryOrder>) return;
+    final status = current.data.status;
+    if (status == 'delivered' || status == 'cancelled') return;
+    _fetchOrder(silent: true);
+  }
+
+  Future<void> _fetchOrder({bool silent = false}) async {
+    if (!silent) setState(() => _state = const ViewLoading());
     try {
       final response = await ApiClient.instance.get('/delivery/orders/${widget.orderId}');
       final order = DeliveryOrder.fromJson(Map<String, dynamic>.from(response as Map));
       if (!mounted) return;
       setState(() => _state = ViewData(order));
-      if (order.agentId != null) {
+      if (order.agentId != null && (!silent || _agentPerformance == null)) {
         unawaited(_fetchAgentPerformance(order.agentId!));
         // Only needed when someone other than the agent themself is
         // viewing -- the agent already knows their own name.
         final viewerIsTheAgent =
             SessionManager.instance.isDeliveryAgent && SessionManager.instance.userId == order.agentId;
-        if (!viewerIsTheAgent) unawaited(_fetchAgentName(order.agentId!));
+        if (!viewerIsTheAgent && (!silent || _agentName == null)) {
+          unawaited(_fetchAgentName(order.agentId!));
+        }
       }
     } on ApiException catch (e) {
-      if (!mounted) return;
+      // A failed background refresh is not worth replacing the screen with an error.
+      if (!mounted || silent) return;
       setState(() => _state = ViewError(e.message));
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || silent) return;
       setState(() => _state = const ViewError('Could not load this order. Please try again.'));
     }
   }
@@ -97,6 +128,85 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     'delivered': 'customer',
   };
 
+  // The agent's GPS is sent with the status update so the server can check the
+  // geofence (SRS "Update Order Status"). If GPS is not available the request
+  // is still sent and the server falls back to the last saved location.
+  Future<(double, double)?> _tryGetPosition() async {
+    try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return null;
+      }
+      if (!await Geolocator.isLocationServiceEnabled()) return null;
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      );
+      return (position.latitude, position.longitude);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // SRS REQ-AGENT-4: "Notify Customer" sends the customer an ETA message.
+  Future<void> _notifyCustomer() async {
+    setState(() => _notifying = true);
+    try {
+      final position = await _tryGetPosition();
+      final response = await ApiClient.instance.post(
+        '/delivery/orders/${widget.orderId}/notify-customer',
+        body: {
+          if (position != null) 'lat': position.$1,
+          if (position != null) 'lng': position.$2,
+        },
+      );
+      if (!mounted) return;
+      final message = (response as Map)['message'] as String? ?? 'Customer notified.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      await _fetchOrder(silent: true);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Could not notify the customer.')));
+    } finally {
+      if (mounted) setState(() => _notifying = false);
+    }
+  }
+
+  // SRS 5.6.2 / REQ-AGENT-5: after delivery the customer rates the agent.
+  Future<void> _submitRating() async {
+    setState(() => _submittingRating = true);
+    try {
+      final comment = _ratingCommentController.text.trim();
+      await ApiClient.instance.post(
+        '/delivery/orders/${widget.orderId}/rate',
+        body: {
+          'rating': _selectedRating,
+          if (comment.isNotEmpty) 'comment': comment.length > 300 ? comment.substring(0, 300) : comment,
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Thanks for your feedback!')));
+      await _fetchOrder(silent: true);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Could not send your rating.')));
+    } finally {
+      if (mounted) setState(() => _submittingRating = false);
+    }
+  }
+
   Future<void> _advanceStatus(String nextStatus) async {
     final source = _codeSources[nextStatus];
     String? code;
@@ -108,11 +218,14 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
 
     setState(() => _updatingStatus = true);
     try {
+      final position = await _tryGetPosition();
       await ApiClient.instance.patch(
         '/delivery/orders/${widget.orderId}/status',
         body: {
           'status': nextStatus,
           if (code != null) 'code': code,
+          if (position != null) 'lat': position.$1,
+          if (position != null) 'lng': position.$2,
         },
       );
       if (!mounted) return;
@@ -215,6 +328,12 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _TrackingHeader(order: order),
+                    if (order.agentEtaMinutes != null &&
+                        order.status != 'delivered' &&
+                        order.status != 'cancelled') ...[
+                      const SizedBox(height: AppSpacing.md),
+                      _EtaBanner(minutes: order.agentEtaMinutes!),
+                    ],
                     const SizedBox(height: AppSpacing.lg),
                     // The server only sends the code this viewer is entitled
                     // to, so whichever one arrived is the one to show.
@@ -238,6 +357,7 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
                     const SizedBox(height: AppSpacing.xl),
                     _OrderDetailsCard(order: order),
                     const SizedBox(height: AppSpacing.xl),
+                    _buildRatingSection(order),
                     _buildAgentAction(order),
                   ],
                 ),
@@ -259,6 +379,11 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
           MapTileLayer(),
           MarkerLayer(
             markers: [
+              if (order.pickupLat != null && order.pickupLng != null)
+                Marker(
+                  point: ll.LatLng(order.pickupLat!, order.pickupLng!),
+                  child: Icon(Icons.storefront, color: Theme.of(context).colorScheme.primary, size: 30),
+                ),
               Marker(
                 point: destination,
                 child: Icon(Icons.location_pin, color: Theme.of(context).colorScheme.error, size: 36),
@@ -285,13 +410,135 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
       _ => null,
     };
     if (nextStatus == null) return const SizedBox.shrink();
+    final needsGeofence = true;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppButton(
+          label: 'Notify customer (ETA)',
+          variant: AppButtonVariant.outlined,
+          icon: Icons.notifications_active_outlined,
+          isLoading: _notifying,
+          onPressed: _notifyCustomer,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        AppButton(
+          label: nextStatus == 'picked_up'
+              ? 'Confirm pickup with the shop code'
+              : 'Confirm delivery with the customer code',
+          isLoading: _updatingStatus,
+          onPressed: () => _advanceStatus(nextStatus),
+        ),
+        if (needsGeofence) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            nextStatus == 'picked_up'
+                ? 'You must be at the pickup point to confirm pickup.'
+                : "You must be at the customer's address to confirm delivery.",
+            textAlign: TextAlign.center,
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: context.appColors.textSecondary),
+          ),
+        ],
+      ],
+    );
+  }
 
-    return AppButton(
-      label: nextStatus == 'picked_up'
-          ? 'Confirm pickup with the shop code'
-          : 'Confirm delivery with the customer code',
-      isLoading: _updatingStatus,
-      onPressed: () => _advanceStatus(nextStatus),
+  // SRS 5.6.2: once delivered, the customer is asked to rate the agent.
+  Widget _buildRatingSection(DeliveryOrder order) {
+    final isOwner = SessionManager.instance.userId == order.customerId;
+    if (order.status != 'delivered' || !isOwner || order.agentId == null) {
+      return const SizedBox.shrink();
+    }
+    final colors = context.appColors;
+    if (order.rating != null) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.xl),
+        child: AppCard(
+          child: Row(
+            children: [
+              Icon(Icons.star_rounded, color: colors.warning),
+              const SizedBox(width: AppSpacing.sm),
+              Text('You rated this delivery ${order.rating}/5'),
+            ],
+          ),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xl),
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('How was your delivery?', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: AppSpacing.sm),
+            Row(
+              children: List.generate(5, (index) {
+                final filled = index < _selectedRating;
+                return IconButton(
+                  tooltip: '${index + 1} star${index == 0 ? '' : 's'}',
+                  onPressed: () => setState(() => _selectedRating = index + 1),
+                  icon: Icon(
+                    filled ? Icons.star_rounded : Icons.star_outline_rounded,
+                    color: colors.warning,
+                    size: 32,
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            AppTextField(
+              controller: _ratingCommentController,
+              label: 'Comment (optional)',
+              maxLines: 2,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            AppButton(
+              label: 'Submit rating',
+              isLoading: _submittingRating,
+              onPressed: _selectedRating == 0 ? null : _submitRating,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// SRS REQ-AGENT-4: the ETA message the agent sent with "Notify customer".
+class _EtaBanner extends StatelessWidget {
+  final int minutes;
+
+  const _EtaBanner({required this.minutes});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.notifications_active_outlined, color: colorScheme.onPrimaryContainer),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text(
+              'Your delivery agent is on the way! ETA: $minutes minute${minutes == 1 ? '' : 's'}.',
+              style: TextStyle(
+                color: colorScheme.onPrimaryContainer,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -618,20 +865,46 @@ class _OrderDetailsCard extends StatelessWidget {
         children: [
           Text('Order details', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: AppSpacing.md),
+          if (order.pickupAddress != null && order.pickupAddress!.isNotEmpty) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.storefront_outlined, size: 18, color: colors.textSecondary),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(child: Text('Pickup: ${order.pickupAddress}')),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Icon(Icons.place_outlined, size: 18, color: colors.textSecondary),
               const SizedBox(width: AppSpacing.sm),
-              Expanded(child: Text(order.deliveryAddress)),
+              Expanded(child: Text('Drop: ${order.deliveryAddress}')),
             ],
           ),
+          if (order.itemDescription != null && order.itemDescription!.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.inventory_2_outlined, size: 18, color: colors.textSecondary),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(child: Text(order.itemDescription!)),
+              ],
+            ),
+          ],
           const SizedBox(height: AppSpacing.sm),
           Row(
             children: [
               Icon(Icons.payments_outlined, size: 18, color: colors.textSecondary),
               const SizedBox(width: AppSpacing.sm),
-              Text('Rs. ${order.totalAmount.toStringAsFixed(2)}'),
+              Text(
+                order.totalAmount > 0
+                    ? 'Offered fee: Rs. ${order.totalAmount.toStringAsFixed(2)}'
+                    : 'Fee to be agreed with the agent',
+              ),
             ],
           ),
           if (order.items.isNotEmpty) ...[

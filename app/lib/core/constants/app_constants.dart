@@ -47,6 +47,7 @@ class AppRoutes {
   static const String driverHome = '/delivery/driver-home';
   static const String deliveryTracking = '/delivery/tracking';
   static const String myOrders = '/delivery/my-orders';
+  static const String requestDelivery = '/delivery/request';
   static const String myFavorites = '/recommendations/favorites';
   static const String interests = '/recommendations/interests';
   static const String addNewShop = '/crowdsource/add-shop';

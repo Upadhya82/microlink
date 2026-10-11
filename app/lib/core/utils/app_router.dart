@@ -11,6 +11,7 @@ import '../../features/crowdsourcing/screens/report_road_issue_screen.dart';
 import '../../features/delivery/screens/delivery_tracking_screen.dart';
 import '../../features/delivery/screens/driver_home_screen.dart';
 import '../../features/delivery/screens/my_orders_screen.dart';
+import '../../features/delivery/screens/request_delivery_screen.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/navigation/screens/live_map_screen.dart';
 import '../../features/notifications/screens/notifications_screen.dart';
@@ -62,6 +63,9 @@ class AppRouter {
         return _page(DeliveryTrackingScreen(orderId: args.orderId), settings);
       case AppRoutes.myOrders:
         return _page(const MyOrdersScreen(), settings);
+      case AppRoutes.requestDelivery:
+        final args = settings.arguments as RequestDeliveryArgs? ?? const RequestDeliveryArgs();
+        return _page(RequestDeliveryScreen(args: args), settings);
       case AppRoutes.myFavorites:
         return _page(const MyFavoritesScreen(), settings);
       case AppRoutes.interests:
