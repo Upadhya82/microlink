@@ -344,3 +344,16 @@ async def unfavorite_shop(
         Favorite.user_id == current_user.id, Favorite.shop_id == shop_id
     ).delete()
     db.commit()
+
+
+@router.get("/shops/{shop_id}/followers", response_model=list[str])
+async def shop_followers(shop_id: str, db: Session = Depends(get_db)):
+    """The user ids that favourited this shop.
+
+    Service-to-service only: shop-service uses it to work out who actually
+    cares that a shop has gone quiet. "Customers near the shop" is not
+    something this system can answer -- no customer location is stored --
+    and the people who saved the shop are a better audience anyway.
+    """
+    rows = db.query(Favorite.user_id).filter(Favorite.shop_id == shop_id).all()
+    return [row[0] for row in rows]

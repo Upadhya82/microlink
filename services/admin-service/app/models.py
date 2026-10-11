@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, LargeBinary, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,6 +38,30 @@ class ActivityLog(Base):
     event_type: Mapped[str] = mapped_column(String(150), index=True, nullable=False)
     source_service: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
     payload: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
+class Notification(Base):
+    """One in-app notification for one user (the use-case diagram's "View
+    Notifications", available to every role).
+
+    Rows are written by the event-bus subscriber in app/activity.py, never by
+    a request handler -- any service that wants to notify someone publishes a
+    `notify.users` event through its own event_bus.notify_users() helper.
+    `link` is a small JSON object stored as text ({"route": "order", "id":
+    "..."}) that tells the app where tapping the row should go; it is Text
+    rather than JSON so a malformed hint can never break the insert.
+    """
+
+    __tablename__ = "notifications"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(Text, default="")
+    kind: Mapped[str] = mapped_column(String(40), default="general", nullable=False)
+    link: Mapped[str] = mapped_column(Text, default="{}")
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
 
 
@@ -101,7 +125,11 @@ class Advertisement(Base):
     submitted_by_user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     title: Mapped[str] = mapped_column(String(150), nullable=False)
     subtitle: Mapped[str] = mapped_column(String(300), default="")
-    image_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    # Either a link the advertiser gave, or an image they uploaded. The
+    # uploaded bytes win when both are present.
+    image_url: Mapped[str] = mapped_column(String(500), default="")
+    image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    has_image: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     status: Mapped[AdStatus] = mapped_column(
         Enum(AdStatus, name="ad_status"), default=AdStatus.pending, nullable=False
     )
