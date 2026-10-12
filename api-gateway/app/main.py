@@ -2,6 +2,8 @@ import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import rate_limit
+
 app = FastAPI(title="MicroLink API Gateway", version="1.0.0")
 
 app.add_middleware(
@@ -58,6 +60,16 @@ async def gateway_proxy(request: Request, path: str):
     if target_host is None:
         return Response(
             content='{"detail":"Not Found"}', status_code=404, media_type="application/json"
+        )
+
+    client = request.client.host if request.client else "unknown"
+    retry_after = rate_limit.check(client, request.method, path)
+    if retry_after is not None:
+        return Response(
+            content='{"detail":"Too many attempts. Please wait and try again."}',
+            status_code=429,
+            media_type="application/json",
+            headers={"Retry-After": str(retry_after)},
         )
 
     url = f"{target_host}/{path}"
