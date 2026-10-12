@@ -12,6 +12,7 @@ import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/role_nav_scaffold.dart';
 import '../../../core/widgets/status_badge.dart';
 import 'admin_users_tab.dart';
 
@@ -28,54 +29,83 @@ class AdminDashboardScreen extends StatefulWidget {
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+  /// The four sections an admin works in daily sit in the bar; the four they
+  /// consult occasionally live behind "More".
+  ///
+  /// All eight used to be a horizontally scrollable [TabBar], where anything
+  /// past "Complaints" was off-screen until you thought to swipe the tab
+  /// strip -- so ad approvals and plan management were effectively hidden.
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return DefaultTabController(
-      length: 8,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.shield_outlined, size: 20, color: colorScheme.primary),
-              const SizedBox(width: AppSpacing.sm),
-              const Text('Admin Dashboard'),
-            ],
-          ),
-          bottom: TabBar(
-            isScrollable: true,
-            indicatorColor: colorScheme.primary,
-            indicatorWeight: 2,
-            labelColor: colorScheme.primary,
-            unselectedLabelColor: context.appColors.textSecondary,
-            labelStyle: const TextStyle(fontWeight: FontWeight.w700),
-            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700),
-            tabs: const [
-              Tab(text: 'Overview', icon: Icon(Icons.insights_outlined)),
-              Tab(text: 'Users', icon: Icon(Icons.verified_user_outlined)),
-              Tab(text: 'Activity Log', icon: Icon(Icons.history)),
-              Tab(text: 'Complaints', icon: Icon(Icons.report_problem_outlined)),
-              Tab(text: 'Shop Reports', icon: Icon(Icons.storefront_outlined)),
-              Tab(text: 'Road Reports', icon: Icon(Icons.warning_amber_outlined)),
-              Tab(text: 'Ads', icon: Icon(Icons.campaign_outlined)),
-              Tab(text: 'Plans', icon: Icon(Icons.workspace_premium_outlined)),
-            ],
-          ),
+    return RoleNavScaffold(
+      items: [
+        RoleNavItem(
+          label: 'Overview',
+          icon: Icons.insights_outlined,
+          selectedIcon: Icons.insights,
+          headerTitle: 'Overview',
+          headerSubtitle: 'How the platform is doing today',
+          builder: (_) => const _OverviewTab(),
         ),
-        body: const TabBarView(
-          children: [
-            _OverviewTab(),
-            AdminUsersTab(),
-            _ActivityLogTab(),
-            _ComplaintsTab(),
-            _ShopReportsTab(),
-            _RoadReportsTab(),
-            _AdsTab(),
-            _PlansTab(),
-          ],
+        RoleNavItem(
+          label: 'Users',
+          icon: Icons.verified_user_outlined,
+          selectedIcon: Icons.verified_user,
+          headerTitle: 'Users',
+          headerSubtitle: 'Approve shop owners and delivery agents',
+          builder: (_) => const AdminUsersTab(),
         ),
-      ),
+        RoleNavItem(
+          label: 'Complaints',
+          icon: Icons.report_problem_outlined,
+          selectedIcon: Icons.report_problem,
+          headerTitle: 'Complaints',
+          headerSubtitle: 'What people have reported to you',
+          builder: (_) => const _ComplaintsTab(),
+        ),
+        RoleNavItem(
+          label: 'Shops',
+          icon: Icons.storefront_outlined,
+          selectedIcon: Icons.storefront,
+          headerTitle: 'Shop Reports',
+          headerSubtitle: 'Shops the neighbourhood has suggested',
+          builder: (_) => const _ShopReportsTab(),
+        ),
+      ],
+      overflowItems: [
+        RoleNavItem(
+          label: 'Road Reports',
+          icon: Icons.warning_amber_outlined,
+          selectedIcon: Icons.warning_amber,
+          headerTitle: 'Road Reports',
+          headerSubtitle: 'Road issues reported by drivers and customers',
+          builder: (_) => const _RoadReportsTab(),
+        ),
+        RoleNavItem(
+          label: 'Ads',
+          icon: Icons.campaign_outlined,
+          selectedIcon: Icons.campaign,
+          headerTitle: 'Advertisements',
+          headerSubtitle: 'Review what shops want to promote',
+          builder: (_) => const _AdsTab(),
+        ),
+        RoleNavItem(
+          label: 'Activity Log',
+          icon: Icons.history,
+          selectedIcon: Icons.history,
+          headerTitle: 'Activity Log',
+          headerSubtitle: 'Everything that happened, newest first',
+          builder: (_) => const _ActivityLogTab(),
+        ),
+        RoleNavItem(
+          label: 'Plans',
+          icon: Icons.workspace_premium_outlined,
+          selectedIcon: Icons.workspace_premium,
+          headerTitle: 'Subscription Plans',
+          headerSubtitle: 'What shops can subscribe to',
+          builder: (_) => const _PlansTab(),
+        ),
+      ],
     );
   }
 }
