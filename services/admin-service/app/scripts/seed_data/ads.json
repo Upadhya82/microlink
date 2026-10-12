@@ -1,0 +1,32 @@
+[
+  {
+    "advertiser_name": "Kamal Grocery & Veg",
+    "title": "Weekend Veg Sale",
+    "subtitle": "Up to 20% off fresh vegetables every Saturday",
+    "image_url": "https://images.unsplash.com/photo-1542838132-92c53300491e?w=800"
+  },
+  {
+    "advertiser_name": "Kamal Grocery & Veg",
+    "title": "Free delivery over Rs. 3000",
+    "subtitle": "Groceries to your door, no delivery fee",
+    "image_url": "https://images.unsplash.com/photo-1604719312566-8912e9227c6a?w=800"
+  },
+  {
+    "advertiser_name": "Deep Taste Ltd",
+    "title": "Grand Opening Promo",
+    "subtitle": "Try our new menu with 15% off this month",
+    "image_url": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800"
+  },
+  {
+    "advertiser_name": "Perera Bake House",
+    "title": "Fresh Bread, Every Morning",
+    "subtitle": "Buy 2 loaves, get a bun free before 9 AM",
+    "image_url": "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=800"
+  },
+  {
+    "advertiser_name": "Diyagama Pharmacy",
+    "title": "Health Week Offers",
+    "subtitle": "Vitamins and essentials at special prices",
+    "image_url": "https://images.unsplash.com/photo-1587854692152-cbe660dbde88?w=800"
+  }
+]

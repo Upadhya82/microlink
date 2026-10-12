@@ -66,6 +66,10 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
   bool _showPending = true;
   String? _verifyingId;
 
+  /// Bumped on every load; a response whose id is no longer current (the admin
+  /// switched filter meanwhile) is dropped instead of overwriting the list.
+  int _requestId = 0;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -75,25 +79,34 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() => _state = const ViewLoading());
+  /// [quiet] keeps the current list on screen while reloading (pull-to-refresh,
+  /// after verifying someone) instead of flashing a full-screen spinner.
+  Future<void> _load({bool quiet = false}) async {
+    final requestId = ++_requestId;
+    if (!quiet || _state is! ViewData) {
+      setState(() => _state = const ViewLoading());
+    }
     try {
       final response = await ApiClient.instance.get(
         '/users',
         query: {'is_verified': _showPending ? 'false' : 'true'},
       );
-      // Only shop owners and delivery agents ever need verification.
-      final items = (response as List<dynamic>)
+      // Accept a bare list or a paged `{items: [...]}` envelope.
+      final rows = response is Map<String, dynamic> ? response['items'] : response;
+      // Only shop owners and delivery agents ever need verification, and a
+      // deactivated account cannot log in, so it is not worth approving.
+      final items = (rows as List<dynamic>)
           .map((e) => _VerifiableUser.fromJson(e as Map<String, dynamic>))
           .where((u) => u.role == 'shop_owner' || u.role == 'delivery_agent')
+          .where((u) => !_showPending || u.isActive)
           .toList();
-      if (!mounted) return;
+      if (!mounted || requestId != _requestId) return;
       setState(() => _state = ViewData(items));
     } on ApiException catch (e) {
-      if (!mounted) return;
+      if (!mounted || requestId != _requestId) return;
       setState(() => _state = ViewError(e.message));
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || requestId != _requestId) return;
       setState(() => _state = const ViewError('Could not load users.'));
     }
   }
@@ -111,7 +124,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('${user.fullName} has been verified.')));
-      await _load();
+      await _load(quiet: true);
     } on ApiException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
@@ -156,7 +169,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
         ),
         Expanded(
           child: RefreshIndicator(
-            onRefresh: _load,
+            onRefresh: () => _load(quiet: true),
             child: AsyncStateView<List<_VerifiableUser>>(
               state: _state,
               onRetry: _load,

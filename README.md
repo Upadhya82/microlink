@@ -23,6 +23,7 @@ well in Git.
 ```bash
 # Backend - starts Postgres, Redis, all 7 services, and the API Gateway
 cp .env.example .env
+# edit .env: set JWT_SECRET (>= 32 chars, e.g. `openssl rand -hex 32`) and POSTGRES_PASSWORD
 docker compose up --build
 
 # Frontend - in a second terminal
@@ -30,6 +31,11 @@ cd app
 flutter pub get
 flutter run
 ```
+
+`docker compose up` also merges `docker-compose.override.yml`, which publishes
+Postgres, Redis and the individual service ports for local debugging. **On a
+server deploy with `docker compose -f docker-compose.yml up -d --build`** so only
+the API gateway (port 8080) is reachable, and put HTTPS in front of it.
 
 More detail in `app/README.md` and `services/README.md`.
 
