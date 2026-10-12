@@ -10,7 +10,10 @@ set -e
 
 for db in user_db shop_db recommendation_db navigation_db delivery_db crowdsource_db admin_db; do
   echo "Creating database: $db"
-  psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
+  # --dbname matters: without it psql connects to a database named after
+  # $POSTGRES_USER, which need not exist (POSTGRES_DB is "postgres" in
+  # .env.example), and every CREATE DATABASE below then fails.
+  psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${POSTGRES_DB:-postgres}" <<-EOSQL
     CREATE DATABASE $db;
 EOSQL
 done

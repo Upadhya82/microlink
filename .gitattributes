@@ -1,0 +1,11 @@
+# Normalise line endings. Without this, core.autocrlf=true on Windows checks
+# shell scripts out with CRLF, and a script copied into a Linux container then
+# fails with `/bin/bash^M: bad interpreter` -- which is how
+# infra/init-multiple-dbs.sh silently stopped creating the per-service
+# databases on Windows machines.
+* text=auto
+
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf

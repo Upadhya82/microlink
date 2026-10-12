@@ -15,7 +15,7 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./infra/init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-microlink}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-microlink} -d ${POSTGRES_DB:-postgres}"]
       interval: 5s
       timeout: 5s
       retries: 10
