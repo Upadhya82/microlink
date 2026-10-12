@@ -24,6 +24,7 @@ import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/rating_chip.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../shop_discovery_support.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// Smart Shop Discovery (SRS 5.3, REQ-SEARCH-1 to REQ-SEARCH-5).
 ///
@@ -63,7 +64,13 @@ class _ShopListScreenState extends State<ShopListScreen> {
   /// Off means "anywhere in Sri Lanka": someone in Colombo ordering from a
   /// Kandy shop for a Kandy address is a normal case, and a distance filter
   /// anchored on where they happen to be standing hides exactly those shops.
-  bool _radiusEnabled = true;
+  ///
+  /// Off by default, because on it the screen looks broken rather than
+  /// filtered: shops are spread across the country, so anyone further than
+  /// [_radiusKm] from a town centre opened a category and saw nothing at all.
+  /// Results are sorted nearest-first regardless, so the closest shops are
+  /// still the ones at the top.
+  bool _radiusEnabled = false;
   String _sort = 'smart'; // smart | rating | newest
 
   // device location (optional)
@@ -138,6 +145,24 @@ class _ShopListScreenState extends State<ShopListScreen> {
       return (lat: _landmarkLat, lng: _landmarkLng);
     }
     return (lat: _lat, lng: _lng);
+  }
+
+  /// What to say when nothing matched.
+  ///
+  /// The generic line tells people to widen the radius, which is wrong advice
+  /// when no radius is being applied and useless when they cannot tell that
+  /// one is. Naming the actual limit is the difference between "this app is
+  /// broken" and "ah, that filter is on".
+  String get _emptyMessage {
+    final origin = _searchOrigin;
+    if (_radiusEnabled && origin.lat != null && origin.lng != null) {
+      final km = _radiusKm == _radiusKm.roundToDouble()
+          ? _radiusKm.round().toString()
+          : _radiusKm.toStringAsFixed(1);
+      return 'No shops within $km km of you. Open Filters and turn off the '
+          'distance limit to search anywhere in Sri Lanka.';
+    }
+    return tr('shops.none_body');
   }
 
   Future<void> _fetchShops() async {
@@ -515,8 +540,13 @@ class _ShopListScreenState extends State<ShopListScreen> {
                       Slider(
                         value: tempRadius,
                         min: 0.5,
-                        max: 10,
-                        divisions: 19,
+                        // 50, not 10: the nearest shop to a user outside a
+                        // town can easily be 15-20km away, and a ceiling
+                        // below that made "widen the radius" impossible to
+                        // act on -- the slider ran out before it reached
+                        // anything.
+                        max: 50,
+                        divisions: 99,
                         onChanged: hasLocation && (landmarkMode || tempRadiusEnabled)
                             ? (value) => setSheetState(() => tempRadius = value)
                             : null,
@@ -652,7 +682,7 @@ class _ShopListScreenState extends State<ShopListScreen> {
     final colors = context.appColors;
 
     return Scaffold(
-      appBar: AppBar(title: Text(tr('shops.title'))),
+      appBar: BrandedAppBar(title: Text(tr('shops.title'))),
       body: Column(
         children: [
           Padding(
@@ -736,7 +766,7 @@ class _ShopListScreenState extends State<ShopListScreen> {
                 onRetry: _fetchShops,
                 isEmpty: (data) => data.isEmpty,
                 emptyTitle: tr('shops.none_title'),
-                emptyMessage: tr('shops.none_body'),
+                emptyMessage: _emptyMessage,
                 emptyIcon: Icons.storefront_outlined,
                 loadingSkeleton: const SkeletonList(),
                 builder: (context, shops) {

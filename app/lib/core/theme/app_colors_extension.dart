@@ -8,30 +8,53 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
   final Color success;
   final Color warning;
 
+  /// The band across the top of a screen -- app bars, and the home screen's
+  /// greeting row. A darker burnt orange rather than the brand colour
+  /// itself: at full brightness a whole bar of it overwhelms the content
+  /// under it, and white text on it would not be readable.
+  final Color headerBackground;
+
+  /// Text and icons sitting on [headerBackground].
+  final Color onHeader;
+
   const AppColorsExtension({
     required this.textSecondary,
     required this.success,
     required this.warning,
+    required this.headerBackground,
+    required this.onHeader,
   });
 
   static const light = AppColorsExtension(
     textSecondary: Color(0xFF5B615D),
     success: Color(0xFF1E8A6E),
     warning: Color(0xFFF2A93B),
+    headerBackground: Color(0xFFC2410C),
+    onHeader: Color(0xFFFFFFFF),
   );
 
   static const dark = AppColorsExtension(
     textSecondary: Color(0xFF94A3B8),
     success: Color(0xFF4ADE80),
     warning: Color(0xFFF5C270),
+    headerBackground: Color(0xFFC2410C),
+    onHeader: Color(0xFFFFFFFF),
   );
 
   @override
-  AppColorsExtension copyWith({Color? textSecondary, Color? success, Color? warning}) {
+  AppColorsExtension copyWith({
+    Color? textSecondary,
+    Color? success,
+    Color? warning,
+    Color? headerBackground,
+    Color? onHeader,
+  }) {
     return AppColorsExtension(
       textSecondary: textSecondary ?? this.textSecondary,
       success: success ?? this.success,
       warning: warning ?? this.warning,
+      headerBackground: headerBackground ?? this.headerBackground,
+      onHeader: onHeader ?? this.onHeader,
     );
   }
 
@@ -42,6 +65,8 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
       textSecondary: Color.lerp(textSecondary, other.textSecondary, t)!,
       success: Color.lerp(success, other.success, t)!,
       warning: Color.lerp(warning, other.warning, t)!,
+      headerBackground: Color.lerp(headerBackground, other.headerBackground, t)!,
+      onHeader: Color.lerp(onHeader, other.onHeader, t)!,
     );
   }
 }

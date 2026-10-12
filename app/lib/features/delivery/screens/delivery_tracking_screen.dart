@@ -19,6 +19,7 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/rating_chip.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// Shows the full detail of one delivery order: destination on a map, a
 /// vertical status timeline, driver info, and order details. The assigned
@@ -303,7 +304,7 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
+      appBar: BrandedAppBar(
         title: const Text('Order Tracking'),
         actions: [
           IconButton(

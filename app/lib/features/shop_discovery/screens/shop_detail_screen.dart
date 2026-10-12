@@ -19,6 +19,7 @@ import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/rating_chip.dart';
 import '../../orders/cart_controller.dart';
 import '../shop_discovery_support.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// Everything the Shop Detail screen needs, loaded together so the whole
 /// screen shares one loading / error state.
@@ -276,7 +277,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
     return Scaffold(
       bottomNavigationBar: _CartBar(shopId: widget.shopId),
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
+      appBar: BrandedAppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,

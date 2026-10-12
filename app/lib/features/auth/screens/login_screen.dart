@@ -5,10 +5,17 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/session_manager.dart';
+import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/validators.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/dropping_wordmark.dart';
+import '../../../core/widgets/obscure_reveal_controller.dart';
+import '../../../core/widgets/pop_in.dart';
+import '../../../core/widgets/sculpted.dart';
+import '../../../core/widgets/spinning_logo.dart';
+import '../../../core/widgets/wave_text.dart';
 
 /// The Login screen: email + password sign-in against `POST /auth/login`.
 class LoginScreen extends StatefulWidget {
@@ -21,7 +28,9 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  // An ObscureRevealController lets AppTextField wipe the mask across the
+  // text when the eye is tapped instead of switching it in one frame.
+  final _passwordController = ObscureRevealController();
 
   bool _obscurePassword = true;
   bool _isSubmitting = false;
@@ -83,22 +92,41 @@ class _LoginScreenState extends State<LoginScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const SizedBox(height: AppSpacing.xxl),
-                Icon(
-                  Icons.storefront_rounded,
-                  size: 72,
-                  color: colorScheme.primary,
+                // The three pieces arrive in reading order: the mark lands,
+                // the name rises under it, then the greeting ripples across.
+                // The delays are what make it a sequence rather than three
+                // things moving at once.
+                PopIn(
+                  child: SpinningLogo(
+                    // The highlight is driven by the turn, so the bright
+                    // streak sweeps the face as it comes round rather than
+                    // sitting in one place -- which is what separates
+                    // polished metal from paint.
+                    builder: (context, turn) => Sculpted(
+                      baseColor: colorScheme.primary,
+                      depth: 9,
+                      highlight: turn,
+                      layer: (color) => Icon(
+                        Icons.storefront_rounded,
+                        size: 72,
+                        color: color,
+                      ),
+                    ),
+                  ),
                 ),
-                const SizedBox(height: AppSpacing.lg),
-                Text(
+                const SizedBox(height: AppSpacing.xl),
+                DroppingWordmark(
                   AppConstants.appName,
-                  textAlign: TextAlign.center,
-                  style: textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
+                  delay: AppMotion.medium,
+                  color: colorScheme.primary,
+                  style: textTheme.headlineMedium!.copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: AppSpacing.xs),
-                Text(
+                WaveText(
                   tr('auth.welcome_back'),
-                  textAlign: TextAlign.center,
+                  delay: AppMotion.slow,
                   style: textTheme.bodyMedium,
+                  repeat: true,
                 ),
                 const SizedBox(height: AppSpacing.xxxl),
                 AppTextField(

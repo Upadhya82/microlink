@@ -14,6 +14,7 @@ import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/stagger_in.dart';
 import '../document_types.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// Upload the documents an admin needs before approving a shop owner or
 /// delivery agent (REQ-AGENT-1, REQ-ADMIN-1/2).
@@ -122,7 +123,7 @@ class _VerificationDocumentsScreenState extends State<VerificationDocumentsScree
         kAllDocTypes.where((t) => !required.contains(t.value)).map((t) => t.value).toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Verification documents')),
+      appBar: BrandedAppBar(title: const Text('Verification documents')),
       body: RefreshIndicator(
         onRefresh: _load,
         child: AsyncStateView<List<Map<String, dynamic>>>(

@@ -12,8 +12,10 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/validators.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/obscure_reveal_controller.dart';
 import '../../../core/widgets/stagger_in.dart';
 import '../../account/document_types.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 class _RoleOption {
   final String value;
@@ -79,7 +81,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget build(BuildContext context) {
     final role = _role;
     return Scaffold(
-      appBar: AppBar(
+      appBar: BrandedAppBar(
         title: Text(role == null ? 'Create account' : 'Sign up as ${role.label}'),
         leading: role == null
             ? null
@@ -243,8 +245,9 @@ class _RegisterFormState extends State<_RegisterForm> {
   final _fullNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
+  // See login_screen.dart: these drive the animated show/hide wipe.
+  final _passwordController = ObscureRevealController();
+  final _confirmPasswordController = ObscureRevealController();
 
   /// Shop owners name their business; agents say what they drive. Collected
   /// here so the admin reviewing the application has context beyond a name.

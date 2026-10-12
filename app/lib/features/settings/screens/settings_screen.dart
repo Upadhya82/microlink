@@ -9,6 +9,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/stagger_in.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// Settings (SRS use case "Configure Application Settings").
 ///
@@ -26,7 +27,7 @@ class SettingsScreen extends StatelessWidget {
       ]),
       builder: (context, _) {
         return Scaffold(
-          appBar: AppBar(title: Text(tr('settings.title'))),
+          appBar: BrandedAppBar(title: Text(tr('settings.title'))),
           body: ListView(
             padding: const EdgeInsets.all(AppSpacing.lg),
             children: [

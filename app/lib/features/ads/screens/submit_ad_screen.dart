@@ -17,6 +17,7 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// Lets a shop owner (or a company) submit a sponsored banner to run on the
 /// customer Home screen. Submits to `POST /ads`; every submission starts
@@ -187,7 +188,7 @@ class _SubmitAdScreenState extends State<SubmitAdScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
+      appBar: BrandedAppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new),
           onPressed: () => Navigator.maybePop(context),

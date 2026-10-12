@@ -9,6 +9,7 @@ import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/shop_preview_card.dart';
 import '../../../core/widgets/skeleton_list.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// The user's saved shops, backed by the real `/recommendations/*/favorite`
 /// endpoints (a proper toggle, unlike the old local-only heart button).
@@ -65,7 +66,7 @@ class _MyFavoritesScreenState extends State<MyFavoritesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('My Favorites')),
+      appBar: BrandedAppBar(title: const Text('My Favorites')),
       body: RefreshIndicator(
         onRefresh: _load,
         child: AsyncStateView<List<Shop>>(

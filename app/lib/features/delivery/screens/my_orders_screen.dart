@@ -14,6 +14,7 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// The customer's own delivery order history. `GET /delivery/orders/me`
 /// already branches by role server-side (customers get orders filtered by
@@ -72,7 +73,7 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(tr('orders.my_orders'))),
+      appBar: BrandedAppBar(title: Text(tr('orders.my_orders'))),
       // SRS REQ-DELIV-1: customers can start a delivery request from here.
       floatingActionButton: SessionManager.instance.isCustomer
           ? FloatingActionButton.extended(

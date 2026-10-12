@@ -11,19 +11,24 @@ import 'app_spacing.dart';
 class AppTheme {
   AppTheme._();
 
+  /// The brand colour. Everything tinted in the app comes from here -- no
+  /// screen defines its own, so changing this one value restyles all of them.
+  static const _brand = Color(0xFFFF5724);
+
   static const _lightBackground = Color(0xFFFAFAF8);
-  // A dark navy, not a dimmed version of the light theme's warm green-black --
-  // pairs with the blue accent below, inspired by a reference design.
+  // A dark navy, not a dimmed version of the light background. It is the
+  // complement of the brand orange, so the accent reads as warm against it
+  // instead of competing with it.
   static const _darkBackground = Color(0xFF12202F);
 
   static ThemeData get light => _build(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1E8A6E),
+          seedColor: _brand,
           brightness: Brightness.light,
         ).copyWith(
-          primary: const Color(0xFF1E8A6E),
+          primary: _brand,
           onPrimary: const Color(0xFFFFFFFF),
-          primaryContainer: const Color(0xFFD3F3E7),
+          primaryContainer: const Color(0xFFFFE2D8),
           secondary: const Color(0xFFF2A93B),
           onSecondary: const Color(0xFF1A1C1A),
           secondaryContainer: const Color(0xFFFFE9C7),
@@ -39,12 +44,15 @@ class AppTheme {
 
   static ThemeData get dark => _build(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF3B82F6),
+          seedColor: _brand,
           brightness: Brightness.dark,
         ).copyWith(
-          primary: const Color(0xFF3B82F6),
+          primary: _brand,
           onPrimary: const Color(0xFFFFFFFF),
-          primaryContainer: const Color(0xFF1B3A5C),
+          // A deep, desaturated version of the brand rather than a tint of
+          // the navy: filled chips and selected states need to read as the
+          // same colour family as the accent sitting next to them.
+          primaryContainer: const Color(0xFF5C2414),
           secondary: const Color(0xFFF5C270),
           onSecondary: const Color(0xFF4D3300),
           secondaryContainer: const Color(0xFF614413),
@@ -83,15 +91,22 @@ class AppTheme {
       extensions: [colorsExtension],
       splashFactory: InkRipple.splashFactory,
       visualDensity: VisualDensity.standard,
+      // Every screen's top bar is the burnt-orange band, so the app has one
+      // consistent header whichever role is looking at it.
       appBarTheme: AppBarTheme(
-        backgroundColor: background,
-        foregroundColor: colorScheme.onSurface,
+        backgroundColor: colorsExtension.headerBackground,
+        foregroundColor: colorsExtension.onHeader,
         elevation: 0,
-        scrolledUnderElevation: 1,
-        surfaceTintColor: colorScheme.surfaceTint,
+        scrolledUnderElevation: 0,
+        // Material would otherwise tint the bar towards the surface colour as
+        // content scrolls under it, which turns the band muddy.
+        surfaceTintColor: Colors.transparent,
         centerTitle: false,
-        titleTextStyle: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-        iconTheme: IconThemeData(color: colorScheme.onSurface),
+        titleTextStyle: textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w600,
+          color: colorsExtension.onHeader,
+        ),
+        iconTheme: IconThemeData(color: colorsExtension.onHeader),
       ),
       cardTheme: CardThemeData(
         color: colorScheme.surface,

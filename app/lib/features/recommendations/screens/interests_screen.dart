@@ -8,6 +8,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// Lets a shopper pick the shop categories they care about and how far they're
 /// willing to travel. These are the *explicit* signals recommendation-service
@@ -101,7 +102,7 @@ class _InterestsScreenState extends State<InterestsScreen> {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('My Interests')),
+      appBar: BrandedAppBar(title: const Text('My Interests')),
       body: AsyncStateView<_Preferences>(
         state: _state,
         onRetry: _load,

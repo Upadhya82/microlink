@@ -24,6 +24,7 @@ import '../../location/widgets/area_search_field.dart';
 import '../../location/widgets/map_pin.dart';
 import '../../location/widgets/map_tile_layer.dart';
 import '../voice_guidance.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 const List<({String label, String value, IconData icon})> _travelModes = [
   (label: 'Driving', value: 'driving', icon: Icons.directions_car),
@@ -499,7 +500,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   Widget build(BuildContext context) {
     if (_booting) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Live Map')),
+        appBar: BrandedAppBar(title: const Text('Live Map')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
