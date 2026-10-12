@@ -17,13 +17,22 @@ import '../../../core/network/session_manager.dart';
 import '../../../core/theme/app_colors_extension.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/theme_controller.dart';
-import '../../../core/utils/app_router.dart' show ShopDetailArgs, ShopListArgs;
+import '../../../core/utils/app_router.dart' show LiveMapArgs, ShopDetailArgs, ShopListArgs;
 import '../../../core/utils/category_style.dart';
+import '../../../core/network/multipart_upload.dart';
+import '../../../core/network/profile_photo_service.dart';
+import '../../../core/widgets/coverflow_carousel.dart';
 import '../../../core/widgets/fade_in.dart';
+import '../../../core/widgets/profile_avatar.dart';
+import '../../../core/widgets/role_nav_scaffold.dart';
+import '../../../core/widgets/section_action_button.dart';
 import '../../../core/widgets/shop_preview_card.dart';
 import '../../../core/location/location_service.dart';
+import '../../delivery/screens/driver_home_screen.dart';
+import '../../delivery/screens/my_orders_screen.dart';
 import '../../location/widgets/map_pin.dart';
 import '../../location/widgets/map_tile_layer.dart';
+import '../../navigation/screens/live_map_screen.dart';
 import '../../notifications/widgets/notification_bell.dart';
 import '../../shop_owner/screens/shop_owner_dashboard_screen.dart';
 
@@ -66,6 +75,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    // Every role has an avatar, so this runs whoever is signed in. It fails
+    // quietly -- a missing photo is not worth interrupting anyone over.
+    ProfilePhotoService.instance.load();
     // Only the shopping home needs shops/recommendations/etc. loaded; the
     // staff homes are just static shortcut lists.
     if (SessionManager.instance.isCustomer) _bootstrap();
@@ -246,6 +258,13 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final session = SessionManager.instance;
+
+    // A role with its own bottom navigation brings its whole scaffold with
+    // it, bar included, so it replaces this screen rather than sitting
+    // inside it -- nesting the two would stack two bottom bars.
+    final roleNav = _roleNavFor(session);
+    if (roleNav != null) return roleNav;
+
     final staffHome = _staffHomeFor(session);
     return Scaffold(
       body: SafeArea(
@@ -254,6 +273,46 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       bottomNavigationBar: staffHome != null ? _staffNavBar(context) : _exploreNavBar(context),
+    );
+  }
+
+  /// Roles whose tools belong in a bottom bar rather than behind a menu.
+  ///
+  /// A delivery agent used to land on four cards that each pushed a screen,
+  /// so every switch between "what can I pick up" and "what am I carrying"
+  /// cost a tap in and a tap back. As destinations they are one tap apart and
+  /// keep their state, which matters most while actually driving.
+  Widget? _roleNavFor(SessionManager session) {
+    if (!session.isDeliveryAgent) return null;
+
+    return RoleNavScaffold(
+      items: [
+        RoleNavItem(
+          label: 'Jobs',
+          icon: Icons.two_wheeler_outlined,
+          selectedIcon: Icons.two_wheeler,
+          builder: (_) => const DriverHomeScreen(),
+        ),
+        RoleNavItem(
+          label: 'Deliveries',
+          icon: Icons.receipt_long_outlined,
+          selectedIcon: Icons.receipt_long,
+          builder: (_) => const MyOrdersScreen(),
+        ),
+        RoleNavItem(
+          label: 'Map',
+          icon: Icons.map_outlined,
+          selectedIcon: Icons.map,
+          // No destination: the map opens on the driver's own position
+          // rather than routing to a particular drop-off.
+          builder: (_) => const LiveMapScreen(args: LiveMapArgs()),
+        ),
+      ],
+      trailingAction: RoleNavAction(
+        label: tr('nav.account'),
+        icon: Icons.account_circle_outlined,
+        onTap: () => _showAccountSheet(context),
+      ),
     );
   }
 
@@ -286,37 +345,9 @@ class _HomeScreenState extends State<HomeScreen> {
       // and analytics for their shop, not a menu of links to it.
       return ShopOwnerDashboardScreen(onOpenAccount: _showAccountSheet);
     }
-    if (session.isDeliveryAgent) {
-      return _StaffHomeBody(
-        onOpenAccount: _showAccountSheet,
-        actions: const [
-          _StaffAction(
-            icon: Icons.two_wheeler_outlined,
-            title: 'Driver Home',
-            subtitle: 'Availability, nearby jobs & performance',
-            route: AppRoutes.driverHome,
-          ),
-          _StaffAction(
-            icon: Icons.receipt_long_outlined,
-            title: 'My Deliveries',
-            subtitle: 'Assigned and past deliveries',
-            route: AppRoutes.myOrders,
-          ),
-          _StaffAction(
-            icon: Icons.map_outlined,
-            title: 'Live Map',
-            subtitle: 'Your location, pickups and dropoffs',
-            route: AppRoutes.liveMap,
-          ),
-          _StaffAction(
-            icon: Icons.verified_user_outlined,
-            title: 'Verification Documents',
-            subtitle: 'Upload your ID, licence and police clearance',
-            route: AppRoutes.verificationDocuments,
-          ),
-        ],
-      );
-    }
+    // A delivery agent has no entry here: those same four tools are the
+    // destinations of the bottom bar built in [_roleNavFor], which runs
+    // first.
     return null;
   }
 
@@ -326,19 +357,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return CustomScrollView(
       slivers: [
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, 0),
-          sliver: SliverToBoxAdapter(
+        // The greeting row is this screen's header, so it wears the same
+        // burnt-orange band every other screen's app bar does. Edge to edge:
+        // the colour runs to the screen's sides, the padding is inside it.
+        SliverToBoxAdapter(
+          child: Container(
+            color: context.appColors.headerBackground,
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.sm,
+              AppSpacing.lg,
+              AppSpacing.md,
+            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 InkWell(
                   customBorder: const CircleBorder(),
                   onTap: () => _showAccountSheet(context),
-                  child: CircleAvatar(
+                  child: ProfileAvatar(
                     radius: 22,
-                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                    child: Icon(Icons.person_outline, color: Theme.of(context).colorScheme.primary),
+                    // A translucent white disc rather than the peach one:
+                    // on the band, primaryContainer all but disappears.
+                    backgroundColor: context.appColors.onHeader.withValues(alpha: 0.18),
+                    foregroundColor: context.appColors.onHeader,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.md),
@@ -348,16 +390,45 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Text(
                         '${tr('home.greeting')}, ${session.userName ?? ''}',
-                        style: textTheme.bodyMedium?.copyWith(color: context.appColors.textSecondary),
+                        style: textTheme.bodyMedium?.copyWith(
+                          color: context.appColors.onHeader.withValues(alpha: 0.82),
+                        ),
                       ),
+                      // Secondary to the wordmark on the right: it names the
+                      // tab, the wordmark names the app. Ellipsis because
+                      // this column is the part that gives way when the
+                      // header runs out of width.
                       Text(
                         tr('home.explore'),
-                        style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: context.appColors.onHeader,
+                        ),
                       ),
                     ],
                   ),
                 ),
-                const NotificationBell(),
+                // The brand label, grouped with the icons on the right. Kept
+                // out of the Expanded above so it holds its full size and the
+                // greeting column shrinks instead on a narrow screen. White
+                // here, not brand orange -- orange on orange is unreadable.
+                Padding(
+                  padding: const EdgeInsets.only(right: AppSpacing.sm),
+                  child: Text(
+                    AppConstants.appName,
+                    style: textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: context.appColors.onHeader,
+                    ),
+                  ),
+                ),
+                // The bell takes its colour from the ambient IconTheme, which
+                // is tuned for the page background, not for this band.
+                IconTheme.merge(
+                  data: IconThemeData(color: context.appColors.onHeader),
+                  child: const NotificationBell(),
+                ),
                 // Voice search isn't implemented anywhere in the app yet --
                 // this says so plainly rather than being a silent dead button.
                 _CircleIconButton(
@@ -427,9 +498,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ),
                   ),
-                  TextButton(
+                  SectionActionButton(
+                    label: tr('home.see_all'),
                     onPressed: () => Navigator.pushNamed(context, AppRoutes.recommendedShops),
-                    child: Text(tr('home.see_all')),
                   ),
                 ],
               ),
@@ -445,31 +516,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(tr('home.nearby_shops'), style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                  TextButton(
+                  SectionActionButton(
+                    label: tr('home.view_all'),
                     onPressed: () => Navigator.pushNamed(context, AppRoutes.shopList),
-                    child: Text(tr('home.view_all')),
                   ),
                 ],
               ),
             ),
           ),
           SliverToBoxAdapter(
-            child: SizedBox(
-              height: 246,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
-                itemCount: _nearbyShops.length,
-                separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.md),
-                itemBuilder: (context, index) {
-                  final shop = _nearbyShops[index];
-                  return ShopPreviewCard(
-                    shop: shop,
-                    categoryIconFor: categoryIcon(shop.category),
-                    categoryTint: categoryColors(context, shop.category),
-                  );
-                },
-              ),
+            // The same carousel as the recommendations above, so the two
+            // rails on this screen behave alike. Slightly slower: these are
+            // ordered by distance, so the first few are the ones that
+            // matter and there is no hurry to get past them.
+            child: CoverflowCarousel(
+              itemCount: _nearbyShops.length,
+              step: const Duration(milliseconds: 4800),
+              itemBuilder: (context, index) {
+                final shop = _nearbyShops[index];
+                return ShopPreviewCard(
+                  shop: shop,
+                  categoryIconFor: categoryIcon(shop.category),
+                  categoryTint: categoryColors(context, shop.category),
+                );
+              },
             ),
           ),
         ],
@@ -560,22 +630,21 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
-    return SizedBox(
-      height: 246,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
-        itemCount: _recommended.length,
-        separatorBuilder: (_, _) => SizedBox(width: AppSpacing.md),
-        itemBuilder: (context, index) {
-          final shop = _recommended[index];
-          return ShopPreviewCard(
-            shop: shop,
-            categoryIconFor: categoryIcon(shop.category),
-            categoryTint: categoryColors(context, shop.category),
-          );
-        },
-      ),
+    // A carousel rather than a row: these are a handful of suggestions to
+    // look at one at a time, not a list to scan. It brings each one to the
+    // front in turn, so a recommendation further down the ranking is seen
+    // without anyone having to swipe for it -- and a drag still works for
+    // anyone who wants to go back to one.
+    return CoverflowCarousel(
+      itemCount: _recommended.length,
+      itemBuilder: (context, index) {
+        final shop = _recommended[index];
+        return ShopPreviewCard(
+          shop: shop,
+          categoryIconFor: categoryIcon(shop.category),
+          categoryTint: categoryColors(context, shop.category),
+        );
+      },
     );
   }
 
@@ -665,6 +734,26 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Picks an image and uploads it as the profile photo, replacing any
+  /// previous one.
+  ///
+  /// Nothing is stored locally: the avatar everywhere in the app watches
+  /// [ProfilePhotoService], so it updates on its own once this finishes.
+  Future<void> _changeProfilePhoto(BuildContext sheetContext) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final picked = await MultipartUpload.pick();
+      // They opened the file picker and closed it again.
+      if (picked == null) return;
+      await ProfilePhotoService.instance.upload(picked);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Profile photo updated.')),
+      );
+    } on ApiException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   void _showAccountSheet(BuildContext context) {
     final session = SessionManager.instance;
     showModalBottomSheet(
@@ -682,12 +771,35 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Row(
                   children: [
-                    CircleAvatar(
-                      radius: 24,
-                      backgroundColor: Theme.of(sheetContext).colorScheme.primaryContainer,
-                      child: Icon(
-                        Icons.person_outline,
-                        color: Theme.of(sheetContext).colorScheme.primary,
+                    // Tapping the avatar changes the photo -- the same place
+                    // people look for it on every other app.
+                    InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: () => _changeProfilePhoto(sheetContext),
+                      child: Stack(
+                        alignment: Alignment.bottomRight,
+                        children: [
+                          const ProfileAvatar(radius: 24),
+                          // A small camera badge, so it is visible that the
+                          // avatar does something rather than just being a
+                          // picture of you.
+                          Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              color: Theme.of(sheetContext).colorScheme.primary,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Theme.of(sheetContext).colorScheme.surface,
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Icon(
+                              Icons.photo_camera_outlined,
+                              size: 11,
+                              color: Theme.of(sheetContext).colorScheme.onPrimary,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(width: AppSpacing.md),
@@ -789,13 +901,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       Navigator.pushNamed(context, AppRoutes.submitAd);
                     },
                   ),
-                if (session.isDeliveryAgent)
+                // Documents belong here rather than in the bottom bar: they
+                // are set up once and then only revisited if an admin asks
+                // for something, which is not what a top-level destination
+                // is for. Shop owners need them too and had no way in at all.
+                if (session.isDeliveryAgent || session.isShopOwner)
                   _SheetActionTile(
-                    icon: Icons.two_wheeler_outlined,
-                    label: 'Driver Home',
+                    icon: Icons.verified_user_outlined,
+                    label: 'Verification Documents',
                     onTap: () {
                       Navigator.pop(sheetContext);
-                      Navigator.pushNamed(context, AppRoutes.driverHome);
+                      Navigator.pushNamed(context, AppRoutes.verificationDocuments);
                     },
                   ),
                 _SheetActionTile(
@@ -813,6 +929,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   onTap: () async {
                     Navigator.pop(sheetContext);
                     await SessionManager.instance.clearSession();
+                    // Otherwise the next person to sign in on this device
+                    // sees the last one's face until their own photo loads.
+                    ProfilePhotoService.instance.clear();
                     if (!context.mounted) return;
                     Navigator.pushNamedAndRemoveUntil(context, AppRoutes.login, (route) => false);
                   },
