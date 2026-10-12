@@ -25,6 +25,7 @@ import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/rating_chip.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// The Shop Owner's workspace: their shop's open/closed status, products,
 /// alerts and analytics, all on one screen. Serves two roles:
@@ -101,7 +102,7 @@ class _ShopOwnerDashboardScreenState extends State<ShopOwnerDashboardScreen> {
       );
     }
     return Scaffold(
-      appBar: AppBar(
+      appBar: BrandedAppBar(
         title: const Text('My Shops'),
         actions: [
           IconButton(

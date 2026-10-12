@@ -14,6 +14,7 @@ import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../location/screens/location_picker_screen.dart';
 import '../cart_controller.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// Review the cart, choose where it goes, place the order.
 ///
@@ -136,7 +137,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(tr('delivery.checkout'))),
+      appBar: BrandedAppBar(title: Text(tr('delivery.checkout'))),
       body: AnimatedBuilder(
         animation: Listenable.merge([
           CartController.instance,

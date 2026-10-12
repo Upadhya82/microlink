@@ -13,6 +13,7 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../unread_count_controller.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// The notification centre, available to every role (the use-case diagram's
 /// "View Notifications"). Rows are produced backend-side by admin-service's
@@ -173,7 +174,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         state is ViewData<List<AppNotification>> && state.data.any((n) => !n.isRead);
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: BrandedAppBar(
         title: Text(tr('notifications.title')),
         actions: [
           if (hasUnread)

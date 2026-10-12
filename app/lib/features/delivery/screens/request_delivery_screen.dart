@@ -13,6 +13,7 @@ import '../../../core/utils/route_args.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 enum _PinMode { drop, pickup }
 
@@ -301,7 +302,7 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
         Theme.of(context).textTheme.bodySmall?.copyWith(color: colors.textSecondary);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Request delivery')),
+      appBar: BrandedAppBar(title: const Text('Request delivery')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Form(

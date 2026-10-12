@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors_extension.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/stagger_in.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// "View App Information" (SRS use case). A plain, honest description of what
 /// the app is for and who built it -- no marketing copy, and no claims about
@@ -55,7 +56,7 @@ class AboutScreen extends StatelessWidget {
     final colors = context.appColors;
 
     return Scaffold(
-      appBar: AppBar(title: Text(tr('about.title'))),
+      appBar: BrandedAppBar(title: Text(tr('about.title'))),
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.lg),
         children: [

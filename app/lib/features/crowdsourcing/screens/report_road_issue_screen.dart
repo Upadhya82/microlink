@@ -13,6 +13,7 @@ import '../../../core/utils/validators.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 const Map<String, String> _conditionLabels = {
   'pothole': 'Pothole',
@@ -206,7 +207,7 @@ class _ReportRoadIssueScreenState extends State<ReportRoadIssueScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
+      appBar: BrandedAppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new),
           onPressed: () => Navigator.maybePop(context),

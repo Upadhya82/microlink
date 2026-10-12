@@ -12,6 +12,7 @@ import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/rating_chip.dart';
 import '../../../core/widgets/skeleton_list.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// The Recommended Shops screen: personalized shop suggestions from
 /// `GET /recommendations`, swipe-to-dismiss per shop.
@@ -119,7 +120,7 @@ class _RecommendedShopsScreenState extends State<RecommendedShopsScreen> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     return Scaffold(
-      appBar: AppBar(title: const Text('Recommended For You')),
+      appBar: BrandedAppBar(title: const Text('Recommended For You')),
       body: Column(
         children: [
           Padding(

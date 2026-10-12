@@ -12,6 +12,7 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/stagger_in.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// The admin's moderation desk: everything waiting on a decision, plus the
 /// live system monitor.
@@ -27,7 +28,7 @@ class AdminReviewScreen extends StatelessWidget {
     return DefaultTabController(
       length: 4,
       child: Scaffold(
-        appBar: AppBar(
+        appBar: BrandedAppBar(
           title: const Text('Review & monitor'),
           // Not isScrollable: with four short labels a scrollable TabBar
           // lays its hit areas out narrower than the painted labels, which

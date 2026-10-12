@@ -12,6 +12,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/app_button.dart';
 import '../widgets/area_search_field.dart';
 import '../widgets/map_tile_layer.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// Full-screen map for choosing a point anywhere in Sri Lanka.
 ///
@@ -166,13 +167,13 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   Widget build(BuildContext context) {
     if (_booting || _center == null) {
       return Scaffold(
-        appBar: AppBar(title: Text(widget.title)),
+        appBar: BrandedAppBar(title: Text(widget.title)),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      appBar: BrandedAppBar(title: Text(widget.title)),
       body: Stack(
         children: [
           FlutterMap(

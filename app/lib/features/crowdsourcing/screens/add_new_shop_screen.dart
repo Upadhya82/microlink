@@ -13,6 +13,7 @@ import '../../../core/utils/validators.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 /// A one-shot crowdsourcing form: lets any signed-in user suggest a shop
 /// that isn't on MicroLink yet. Submits to `POST /crowdsource/shop-reports`
@@ -179,7 +180,7 @@ class _AddNewShopScreenState extends State<AddNewShopScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
+      appBar: BrandedAppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new),
           onPressed: () => Navigator.maybePop(context),
