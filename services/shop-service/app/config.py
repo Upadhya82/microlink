@@ -5,7 +5,7 @@ already passes to this service, so nothing in the shared compose file has to
 change. Everything added for Member 2's extra features has a safe default.
 """
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -21,7 +21,20 @@ class Settings(BaseSettings):
     redis_host: str = "redis"
     redis_port: int = 6379
 
-    jwt_secret: str = "change_this_dev_secret_key_before_any_real_deployment"
+    # Required: there is deliberately no default, so a service can never start
+    # with a guessable signing secret. Set JWT_SECRET in .env (same value for
+    # every service) -- generate one with: openssl rand -hex 32
+    jwt_secret: str
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def _jwt_secret_must_be_strong(cls, value: str) -> str:
+        if len(value) < 32 or "change" in value.lower():
+            raise ValueError(
+                "JWT_SECRET must be at least 32 characters and not a placeholder. "
+                "Generate one with: openssl rand -hex 32"
+            )
+        return value
     jwt_algorithm: str = "HS256"
 
     # --- Shop discovery rules (SRS section 5.3 / 5.7) ---

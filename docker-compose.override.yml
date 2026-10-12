@@ -1,0 +1,31 @@
+# Local-development extras, merged automatically by `docker compose up`.
+# DO NOT use this file on a public server (it exposes Postgres, Redis and the
+# internal services); deploy with `docker compose -f docker-compose.yml ...`.
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+  redis:
+    ports:
+      - "6379:6379"
+  user-service:
+    ports:
+      - "8001:8000"
+  shop-service:
+    ports:
+      - "8002:8000"
+  recommendation-service:
+    ports:
+      - "8003:8000"
+  navigation-service:
+    ports:
+      - "8004:8000"
+  delivery-service:
+    ports:
+      - "8005:8000"
+  crowdsource-service:
+    ports:
+      - "8006:8000"
+  admin-service:
+    ports:
+      - "8007:8000"

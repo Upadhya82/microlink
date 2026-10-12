@@ -1,16 +1,19 @@
+# Production-safe base: only the API gateway is published to the host. Postgres,
+# Redis and the seven services talk to each other on the compose network only.
+# For local development `docker compose up` also merges docker-compose.override.yml,
+# which publishes the extra ports. On a server run:
+#   docker compose -f docker-compose.yml up -d --build
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-microlink}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-microlink}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-microlink}"]
       interval: 5s
@@ -20,113 +23,97 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
 
   user-service:
     build: ./services/user-service
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/user_db
+      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}@postgres:5432/user_db
       REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
-    ports:
-      - "8001:8000"
 
   shop-service:
     build: ./services/shop-service
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/shop_db
+      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}@postgres:5432/shop_db
       REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
-    ports:
-      - "8002:8000"
 
   recommendation-service:
     build: ./services/recommendation-service
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/recommendation_db
+      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}@postgres:5432/recommendation_db
       REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
       SHOP_SERVICE_URL: http://shop-service:8000
     depends_on:
       postgres:
         condition: service_healthy
       shop-service:
         condition: service_started
-    ports:
-      - "8003:8000"
 
   navigation-service:
     build: ./services/navigation-service
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/navigation_db
+      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}@postgres:5432/navigation_db
       REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
       MAPS_API_KEY: ${MAPS_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "8004:8000"
 
   delivery-service:
     build: ./services/delivery-service
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/delivery_db
+      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}@postgres:5432/delivery_db
       REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
-    ports:
-      - "8005:8000"
 
   crowdsource-service:
     build: ./services/crowdsource-service
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/crowdsource_db
+      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}@postgres:5432/crowdsource_db
       REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
-    ports:
-      - "8006:8000"
 
   admin-service:
     build: ./services/admin-service
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:-microlink}@postgres:5432/admin_db
+      DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}@postgres:5432/admin_db
       REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
-    ports:
-      - "8007:8000"
 
   api-gateway:
     build: ./api-gateway
