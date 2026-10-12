@@ -6,8 +6,13 @@ import '../location/delivery_location_store.dart';
 import '../network/session_manager.dart';
 import '../theme/theme_controller.dart';
 
-/// The app's first screen: a branded splash while the persisted session
-/// loads from disk, then routes to Home (if already logged in) or Login.
+/// The app's first screen: a quiet hold while the persisted session loads
+/// from disk, then routes to Home (if already logged in) or Login.
+///
+/// There is deliberately no logo or product name here. A splash screen that
+/// exists only to show a mark costs everyone a beat before they can do
+/// anything, so this one shows nothing but the app's color and gets out of
+/// the way as soon as the session has loaded.
 class AppEntryScreen extends StatefulWidget {
   const AppEntryScreen({super.key});
 
@@ -23,18 +28,15 @@ class _AppEntryScreenState extends State<AppEntryScreen> {
   }
 
   Future<void> _resolveSession() async {
-    final stopwatch = Stopwatch()..start();
+    // No artificial minimum any more. The old 500ms floor was there to hold
+    // the logo on screen long enough to be read; with the logo gone it would
+    // only be a delay.
     await Future.wait([
       SessionManager.instance.loadFromDisk(),
       ThemeController.instance.loadFromDisk(),
       DeliveryLocationStore.instance.loadFromDisk(),
       LanguageController.instance.loadFromDisk(),
     ]);
-    final elapsed = stopwatch.elapsed;
-    const minSplash = Duration(milliseconds: 500);
-    if (elapsed < minSplash) {
-      await Future.delayed(minSplash - elapsed);
-    }
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed(
       SessionManager.instance.isLoggedIn ? AppRoutes.home : AppRoutes.login,
@@ -47,19 +49,15 @@ class _AppEntryScreenState extends State<AppEntryScreen> {
     return Scaffold(
       backgroundColor: colorScheme.primary,
       body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.storefront_rounded, size: 72, color: colorScheme.onPrimary),
-            const SizedBox(height: 16),
-            Text(
-              AppConstants.appName,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    color: colorScheme.onPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-          ],
+        // Thin and low-contrast on purpose: on a fast device this is gone in
+        // a frame or two, and a bold spinner flashing by reads as a glitch.
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: colorScheme.onPrimary.withValues(alpha: 0.7),
+          ),
         ),
       ),
     );

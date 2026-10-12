@@ -25,6 +25,7 @@ import '../../features/shop_discovery/screens/shop_detail_screen.dart';
 import '../../features/shop_discovery/screens/shop_list_screen.dart';
 import '../../features/shop_owner/screens/shop_owner_dashboard_screen.dart';
 import '../constants/app_constants.dart';
+import 'app_page_route.dart';
 import 'route_args.dart';
 
 export 'route_args.dart';
@@ -99,7 +100,9 @@ class AppRouter {
     }
   }
 
+  /// Every route goes through here, so the app's transition is defined once
+  /// rather than per screen. See [AppPageRoute].
   static PageRoute<dynamic> _page(Widget child, RouteSettings settings) {
-    return MaterialPageRoute(builder: (_) => child, settings: settings);
+    return AppPageRoute<dynamic>(child: child, settings: settings);
   }
 }

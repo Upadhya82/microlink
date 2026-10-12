@@ -7,7 +7,16 @@ class FadeIn extends StatefulWidget {
   final Widget child;
   final Duration duration;
 
-  const FadeIn({super.key, required this.child, this.duration = const Duration(milliseconds: 280)});
+  /// Waited out before the fade starts. Used to play one element after
+  /// another instead of everything at once.
+  final Duration delay;
+
+  const FadeIn({
+    super.key,
+    required this.child,
+    this.duration = const Duration(milliseconds: 280),
+    this.delay = Duration.zero,
+  });
 
   @override
   State<FadeIn> createState() => _FadeInState();
@@ -15,12 +24,25 @@ class FadeIn extends StatefulWidget {
 
 class _FadeInState extends State<FadeIn> with SingleTickerProviderStateMixin {
   late final AnimationController _controller =
-      AnimationController(vsync: this, duration: widget.duration)..forward();
+      AnimationController(vsync: this, duration: widget.duration);
   late final Animation<double> _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
   late final Animation<Offset> _slide = Tween<Offset>(
     begin: const Offset(0, 0.02),
     end: Offset.zero,
   ).animate(_fade);
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.delay == Duration.zero) {
+      _controller.forward();
+    } else {
+      Future.delayed(widget.delay, () {
+        // The screen can be gone before the delay is up.
+        if (mounted) _controller.forward();
+      });
+    }
+  }
 
   @override
   void dispose() {
