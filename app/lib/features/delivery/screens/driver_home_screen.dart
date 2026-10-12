@@ -19,6 +19,7 @@ import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/rating_chip.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../../../core/widgets/branded_app_bar.dart';
 
 const List<String> _vehicleTypes = ['bike', 'scooter', 'car', 'van'];
 
@@ -363,7 +364,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Driver Home')),
+      appBar: BrandedAppBar(title: const Text('Driver Home')),
       body: RefreshIndicator(
         onRefresh: _refreshAll,
         child: SingleChildScrollView(
