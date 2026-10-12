@@ -146,6 +146,9 @@ class OrderCreateRequest(BaseModel):
 
 class OrderStatusUpdateRequest(BaseModel):
     status: Literal["accepted", "picked_up", "in_transit", "delivered", "cancelled"]
+    # Required for picked_up (the shop owner's code) and delivered (the
+    # customer's). Ignored for the other transitions.
+    code: str | None = Field(default=None, max_length=8)
     # The agent's GPS at the moment of the tap (used for the geofence check).
     lat: float | None = Field(default=None, ge=-90, le=90)
     lng: float | None = Field(default=None, ge=-180, le=180)
@@ -213,6 +216,9 @@ class OrderResponse(BaseModel):
     agent_notified_at: datetime | None = None
     rating: int | None = None
     rating_comment: str | None = None
+    # Only ever populated for the person who is supposed to read it out.
+    pickup_code: str | None = None
+    delivery_code: str | None = None
     created_at: datetime
     updated_at: datetime
     # Filled in by the server, not stored: distance from the asking agent to
@@ -228,7 +234,24 @@ class OrderResponse(BaseModel):
         return value
 
     @classmethod
-    def from_model(cls, order) -> "OrderResponse":
+    def from_model(
+        cls,
+        order,
+        *,
+        viewer_id: str | None = None,
+        viewer_role: str | None = None,
+        is_shop_owner: bool = False,
+    ) -> "OrderResponse":
+        """Build the response, revealing each code only to the person who
+        must read it aloud.
+
+        The agent types the codes in, so showing them to the agent would let
+        a dishonest one mark an order collected and delivered without ever
+        meeting anyone -- which is the whole thing these codes exist to stop.
+
+        Callers that do not pass a viewer get neither code, which is the
+        safe default for a listing that is not addressed to anyone.
+        """
         response = cls.model_validate(order)
         if order.pickup_lat is not None and order.pickup_lng is not None:
             response.trip_distance_km = round(
@@ -237,6 +260,12 @@ class OrderResponse(BaseModel):
                 ),
                 2,
             )
+        is_customer = viewer_id is not None and viewer_id == order.customer_id
+        is_admin = viewer_role == "admin"
+        # The shop owner is identified by shop-service, not here; admins get
+        # both for support, and the customer gets their own.
+        response.pickup_code = order.pickup_code if (is_admin or is_shop_owner) else None
+        response.delivery_code = order.delivery_code if (is_customer or is_admin) else None
         return response
 
 

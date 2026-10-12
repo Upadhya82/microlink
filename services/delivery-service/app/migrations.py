@@ -27,6 +27,10 @@ _STATEMENTS = [
     "ALTER TABLE delivery_agent_profiles ADD COLUMN IF NOT EXISTS review_note VARCHAR(300)",
     f"ALTER TABLE delivery_agent_profiles ADD COLUMN IF NOT EXISTS reviewed_at {_TS}",
     # orders
+    # Handover codes: the shop owner reads one to the agent at pickup, the
+    # customer reads the other at the door.
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_code VARCHAR(8)",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_code VARCHAR(8)",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_address VARCHAR(300)",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_lat DOUBLE PRECISION",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_lng DOUBLE PRECISION",

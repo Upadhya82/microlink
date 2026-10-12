@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/utils/media_url.dart';
 import '../../../core/models/shop.dart';
 import '../../../core/theme/app_colors_extension.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -128,7 +129,7 @@ class _ShopImage extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.card - 4),
       child: Image.network(
-        url,
+        mediaUrl(url) ?? url,
         width: size,
         height: size,
         fit: BoxFit.cover,

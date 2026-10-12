@@ -33,7 +33,11 @@ class Ad {
       advertiserName: json['advertiser_name'] as String,
       title: json['title'] as String,
       subtitle: json['subtitle'] as String? ?? '',
-      imageUrl: json['image_url'] as String,
+      // An uploaded banner wins over a pasted link: image_path is the
+      // server's own copy, which is always reachable.
+      imageUrl: (json['image_path'] as String?)?.isNotEmpty == true
+          ? json['image_path'] as String
+          : (json['image_url'] as String? ?? ''),
       status: json['status'] as String? ?? 'pending',
       startDate: DateTime.tryParse(json['start_date']?.toString() ?? ''),
       endDate: DateTime.tryParse(json['end_date']?.toString() ?? ''),

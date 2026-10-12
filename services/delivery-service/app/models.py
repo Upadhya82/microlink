@@ -127,6 +127,13 @@ class Order(Base):
     rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rating_comment: Mapped[str | None] = mapped_column(String(300), nullable=True)
     rated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Handover verification (two codes, two moments):
+    #   pickup_code   shown to the SHOP OWNER, typed in by the agent at collection
+    #   delivery_code shown to the CUSTOMER,   typed in by the agent at handover
+    # Each one proves the agent physically met that person, which a status
+    # button alone cannot. Never returned to the agent -- see OrderResponse.
+    pickup_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    delivery_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(

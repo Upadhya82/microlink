@@ -68,6 +68,10 @@ class ShopPhotoCreateRequest(BaseModel):
     url: str = Field(min_length=8, max_length=500)
 
 
+class ShopVerifyRequest(BaseModel):
+    is_verified: bool = True
+
+
 class ShopPhotoResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -105,6 +109,7 @@ class ShopResponse(BaseModel):
     status_reason: str | None = None
     reopen_at: datetime | None = None
     delivery_available: bool = False
+    is_verified: bool = False
     photos: list[str] = Field(default_factory=list)
     trust_score: float = 0.0  # same number as rating_avg, named as in the SRS
     # Product availability indicators (REQ-SEARCH-4)
@@ -122,6 +127,16 @@ class LandmarkInfo(BaseModel):
     latitude: float
     longitude: float
     source: str  # "openstreetmap" or "builtin"
+
+
+class ReverseGeocodeResponse(BaseModel):
+    """A point the user dropped on the map, resolved to an address."""
+
+    name: str
+    address: str
+    latitude: float
+    longitude: float
+    source: str  # "openstreetmap"
 
 
 class LandmarkSearchResponse(BaseModel):
@@ -169,6 +184,9 @@ class ProductCreateRequest(BaseModel):
     # Optional on purpose: the smoke test creates a product without a quantity.
     stock_quantity: int | None = Field(default=None, ge=0)
     category: str = Field(default="", max_length=60)
+    # Capped at 90: a 100% discount is a giveaway, and in practice a number
+    # that high is a typo rather than an offer.
+    discount_percent: int = Field(default=0, ge=0, le=90)
     stock_status: StockStatusLiteral | None = None
     is_available: bool | None = None
 
@@ -179,6 +197,7 @@ class ProductUpdateRequest(BaseModel):
     price: float | None = Field(default=None, gt=0)
     stock_quantity: int | None = Field(default=None, ge=0)
     category: str | None = Field(default=None, max_length=60)
+    discount_percent: int | None = Field(default=None, ge=0, le=90)
     stock_status: StockStatusLiteral | None = None
     is_available: bool | None = None
 
@@ -191,12 +210,26 @@ class ProductResponse(BaseModel):
     name: str
     description: str
     price: float
+    discount_percent: int = 0
     stock_quantity: int
     category: str
     is_available: bool
     created_at: datetime
     updated_at: datetime
     stock_status: str = "in_stock"
+    has_image: bool = False
+    image_url: str | None = None
+
+    @model_validator(mode="after")
+    def _derive_pricing(self):
+        # Computed server-side so every client shows the same number and
+        # none of them can round the discount in its own favour.
+        self.final_price = round(self.price * (100 - self.discount_percent) / 100, 2)
+        if self.has_image:
+            self.image_url = f"/shops/{self.shop_id}/products/{self.id}/image"
+        return self
+
+    final_price: float = 0.0
 
 
 # ---------------------------------------------------------------- reviews

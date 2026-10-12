@@ -9,6 +9,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -70,8 +71,24 @@ class Shop(Base):
     status: Mapped[str] = mapped_column(String(20), default="open")
     status_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
     reopen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When the shop last stopped being open, and what we have already done
+    # about a long silence. All three are cleared the moment it reopens.
+    closed_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    inactivity_prompt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    inactivity_broadcast_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     delivery_available: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # REQ-ADMIN-1: a shop is listed as soon as it is created, but carries an
+    # "unverified" marker until an admin has checked it. Hiding unverified
+    # shops entirely would make the crowd-sourced listings useless, so the
+    # app shows them with a badge instead.
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
     # Trust score. Recomputed from `shop_ratings` (last 90 days) - see app/ratings.py.
     rating_avg: Mapped[float] = mapped_column(Float, default=0.0)
@@ -105,7 +122,16 @@ class ShopPhoto(Base):
     shop_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), ForeignKey("shops.id"), nullable=False, index=True
     )
+    # For an uploaded photo this is the app-relative path that serves `data`
+    # (/shops/{shop_id}/photos/{id}/file); for a linked photo it is the
+    # external URL. The app treats both the same -- see mediaUrl() client
+    # side -- so screens never need to know which kind they are showing.
     url: Mapped[str] = mapped_column(String(500), nullable=False)
+    # Deferred: a shop listing loads ten of these rows and never needs the
+    # bytes, so they must not ride along on every query.
+    data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     position: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
@@ -165,8 +191,15 @@ class Product(Base):
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
     price: Mapped[float] = mapped_column(Float, nullable=False)
+    # Percentage off, 0-90. Stored rather than a second "sale price" column
+    # so the original price is never lost and "was Rs.X" stays truthful.
+    discount_percent: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     stock_quantity: Mapped[int] = mapped_column(Integer, default=0)
     category: Mapped[str] = mapped_column(String(60), default="")
+    # Product photo, same storage approach as shop photos. Deferred so a
+    # product list never drags every image into memory.
+    image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    has_image: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # `is_available` is the old true/false flag. `stock_status` is the SRS
     # version (in_stock / low_stock / out_of_stock). Kept in step by the service.
     is_available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

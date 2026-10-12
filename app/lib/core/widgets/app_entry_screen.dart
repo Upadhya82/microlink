@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../constants/app_constants.dart';
+import '../l10n/app_strings.dart';
+import '../location/delivery_location_store.dart';
 import '../network/session_manager.dart';
 import '../theme/theme_controller.dart';
 
@@ -25,6 +27,8 @@ class _AppEntryScreenState extends State<AppEntryScreen> {
     await Future.wait([
       SessionManager.instance.loadFromDisk(),
       ThemeController.instance.loadFromDisk(),
+      DeliveryLocationStore.instance.loadFromDisk(),
+      LanguageController.instance.loadFromDisk(),
     ]);
     final elapsed = stopwatch.elapsed;
     const minSplash = Duration(milliseconds: 500);

@@ -31,6 +31,12 @@ class DeliveryOrder {
   final String? ratingComment;
   final double? tripDistanceKm;
 
+  /// Handover codes. The server decides who may see which: the shop owner
+  /// gets [pickupCode], the customer gets [deliveryCode], and the agent --
+  /// who has to ask for both -- gets neither. Null simply means "not yours".
+  final String? pickupCode;
+  final String? deliveryCode;
+
   const DeliveryOrder({
     required this.id,
     required this.customerId,
@@ -55,6 +61,8 @@ class DeliveryOrder {
     this.rating,
     this.ratingComment,
     this.tripDistanceKm,
+    this.pickupCode,
+    this.deliveryCode,
   });
 
   factory DeliveryOrder.fromJson(Map<String, dynamic> json) {
@@ -88,6 +96,8 @@ class DeliveryOrder {
       rating: json['rating'] as int?,
       ratingComment: json['rating_comment'] as String?,
       tripDistanceKm: (json['trip_distance_km'] as num?)?.toDouble(),
+      pickupCode: json['pickup_code'] as String?,
+      deliveryCode: json['delivery_code'] as String?,
     );
   }
 }

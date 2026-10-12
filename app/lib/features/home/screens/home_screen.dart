@@ -1,8 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart' as ll;
 
+import '../../../core/l10n/app_strings.dart';
+import '../../../core/utils/media_url.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/models/ad.dart';
 import '../../../core/models/shop.dart';
@@ -17,6 +21,10 @@ import '../../../core/utils/app_router.dart' show ShopDetailArgs, ShopListArgs;
 import '../../../core/utils/category_style.dart';
 import '../../../core/widgets/fade_in.dart';
 import '../../../core/widgets/shop_preview_card.dart';
+import '../../../core/location/location_service.dart';
+import '../../location/widgets/map_pin.dart';
+import '../../location/widgets/map_tile_layer.dart';
+import '../../notifications/widgets/notification_bell.dart';
 import '../../shop_owner/screens/shop_owner_dashboard_screen.dart';
 
 /// The Home screen. Each role lands on a home built for what they actually do:
@@ -51,6 +59,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Ad> _ads = const [];
 
   bool _loadingNearbyShops = true;
+  /// True when the shops shown are not actually near the user.
+  bool _nearbyIsNationwide = false;
   List<Shop> _nearbyShops = const [];
 
   @override
@@ -72,25 +82,44 @@ class _HomeScreenState extends State<HomeScreen> {
     ]);
   }
 
-  /// The "Nearby Shops" rail: plain distance-sorted `/shops`, distinct from
-  /// the personalized "Recommended for You" rail above it (which comes from
-  /// recommendation-service's interaction-boosted ranking instead). Hidden
-  /// entirely without a resolved location, since "nearby" has no meaning
-  /// otherwise.
+  /// The "Nearby Shops" rail and map: plain distance-sorted `/shops`,
+  /// distinct from the personalized "Recommended for You" rail above it
+  /// (which comes from recommendation-service's interaction-boosted ranking).
+  ///
+  /// Falls back twice so the section is never just an empty map. If nothing
+  /// is within the default radius -- very possible in a country where the
+  /// nearest listed shop may be two towns away -- it widens the search, and
+  /// with no GPS fix at all it shows shops nationwide. [_nearbyIsNationwide]
+  /// drives the caption so the user is never told that a shop in Jaffna is
+  /// near them.
   Future<void> _fetchNearbyShops() async {
-    if (_lat == null || _lng == null) {
-      setState(() => _loadingNearbyShops = false);
-      return;
-    }
     try {
-      final response = await ApiClient.instance.get(
-        '/shops',
-        query: {'lat': _lat, 'lng': _lng, 'limit': 10},
-      );
-      final shops = (response as List).map((e) => Shop.fromJson(e as Map<String, dynamic>)).toList();
+      List<dynamic> response;
+      var nationwide = false;
+
+      if (_lat != null && _lng != null) {
+        response = await ApiClient.instance.get(
+              '/shops',
+              query: {'lat': _lat, 'lng': _lng, 'radius_km': 10, 'limit': 10},
+            ) as List;
+        if (response.isEmpty) {
+          // Nothing close by: widen rather than show an empty map.
+          response = await ApiClient.instance.get(
+                '/shops',
+                query: {'lat': _lat, 'lng': _lng, 'limit': 10},
+              ) as List;
+          nationwide = response.isNotEmpty;
+        }
+      } else {
+        response = await ApiClient.instance.get('/shops', query: {'limit': 10}) as List;
+        nationwide = true;
+      }
+
+      final shops = response.map((e) => Shop.fromJson(e as Map<String, dynamic>)).toList();
       if (!mounted) return;
       setState(() {
         _nearbyShops = shops;
+        _nearbyIsNationwide = nationwide;
         _loadingNearbyShops = false;
       });
     } catch (_) {
@@ -199,7 +228,10 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     try {
       final response =
-          await ApiClient.instance.get('/shops', query: {'lat': _lat, 'lng': _lng});
+          await ApiClient.instance.get(
+        '/shops',
+        query: {'lat': _lat, 'lng': _lng, 'radius_km': 10},
+      );
       if (!mounted) return;
       setState(() {
         _nearbyCount = (response as List).length;
@@ -240,6 +272,12 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle: 'Analytics, activity log, complaints, ads & plans',
             route: AppRoutes.adminDashboard,
           ),
+          _StaffAction(
+            icon: Icons.fact_check_outlined,
+            title: 'Review & Monitor',
+            subtitle: 'Shop and agent approvals, corrections, live system health',
+            route: AppRoutes.adminReview,
+          ),
         ],
       );
     }
@@ -263,6 +301,18 @@ class _HomeScreenState extends State<HomeScreen> {
             title: 'My Deliveries',
             subtitle: 'Assigned and past deliveries',
             route: AppRoutes.myOrders,
+          ),
+          _StaffAction(
+            icon: Icons.map_outlined,
+            title: 'Live Map',
+            subtitle: 'Your location, pickups and dropoffs',
+            route: AppRoutes.liveMap,
+          ),
+          _StaffAction(
+            icon: Icons.verified_user_outlined,
+            title: 'Verification Documents',
+            subtitle: 'Upload your ID, licence and police clearance',
+            route: AppRoutes.verificationDocuments,
           ),
         ],
       );
@@ -297,16 +347,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Hi, ${session.userName ?? 'there'}',
+                        '${tr('home.greeting')}, ${session.userName ?? ''}',
                         style: textTheme.bodyMedium?.copyWith(color: context.appColors.textSecondary),
                       ),
                       Text(
-                        'Explore',
+                        tr('home.explore'),
                         style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
                       ),
                     ],
                   ),
                 ),
+                const NotificationBell(),
                 // Voice search isn't implemented anywhere in the app yet --
                 // this says so plainly rather than being a silent dead button.
                 _CircleIconButton(
@@ -365,12 +416,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Recommended for You',
+                          tr('home.recommended'),
                           style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Personalised from what you browse, favourite & prefer',
+                          tr('home.recommended_sub'),
                           style: textTheme.bodySmall?.copyWith(color: context.appColors.textSecondary),
                         ),
                       ],
@@ -378,7 +429,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   TextButton(
                     onPressed: () => Navigator.pushNamed(context, AppRoutes.recommendedShops),
-                    child: const Text('See all'),
+                    child: Text(tr('home.see_all')),
                   ),
                 ],
               ),
@@ -393,10 +444,10 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Nearby Shops', style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                  Text(tr('home.nearby_shops'), style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                   TextButton(
                     onPressed: () => Navigator.pushNamed(context, AppRoutes.shopList),
-                    child: const Text('View All'),
+                    child: Text(tr('home.view_all')),
                   ),
                 ],
               ),
@@ -440,10 +491,10 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Nearby Supply', style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Text(tr('home.on_the_map'), style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                 TextButton(
                   onPressed: () => Navigator.pushNamed(context, AppRoutes.liveMap),
-                  child: const Text('View Map'),
+                  child: Text(tr('home.view_map')),
                 ),
               ],
             ),
@@ -453,8 +504,11 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 0),
           sliver: SliverToBoxAdapter(
             child: _NearbyMapCard(
-              loading: _loadingNearby,
+              loading: _loadingNearby || _loadingNearbyShops,
               count: _nearbyCount,
+              shops: _nearbyShops,
+              nationwide: _nearbyIsNationwide,
+              centre: _lat == null || _lng == null ? null : ll.LatLng(_lat!, _lng!),
               onTap: () => Navigator.pushNamed(context, AppRoutes.liveMap),
             ),
           ),
@@ -463,7 +517,7 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.xl, AppSpacing.lg, 0),
           sliver: SliverToBoxAdapter(
             child: Text(
-              'Your Contributions',
+              tr('home.contributions'),
               style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
@@ -510,9 +564,9 @@ class _HomeScreenState extends State<HomeScreen> {
       height: 246,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+        padding: EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
         itemCount: _recommended.length,
-        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.md),
+        separatorBuilder: (_, _) => SizedBox(width: AppSpacing.md),
         itemBuilder: (context, index) {
           final shop = _recommended[index];
           return ShopPreviewCard(
@@ -531,9 +585,9 @@ class _HomeScreenState extends State<HomeScreen> {
       onDestinationSelected: (index) {
         if (index == 1) _showAccountSheet(context);
       },
-      destinations: const [
-        NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),
-        NavigationDestination(icon: Icon(Icons.account_circle_outlined), label: 'Account'),
+      destinations: [
+        NavigationDestination(icon: Icon(Icons.home_outlined), label: tr('nav.home')),
+        NavigationDestination(icon: Icon(Icons.account_circle_outlined), label: tr('nav.account')),
       ],
     );
   }
@@ -556,11 +610,11 @@ class _HomeScreenState extends State<HomeScreen> {
             break;
         }
       },
-      destinations: const [
-        NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),
-        NavigationDestination(icon: Icon(Icons.map_outlined), label: 'Map'),
-        NavigationDestination(icon: Icon(Icons.search), label: 'Search'),
-        NavigationDestination(icon: Icon(Icons.person_outline), label: 'Profile'),
+      destinations: [
+        NavigationDestination(icon: Icon(Icons.home_outlined), label: tr('nav.home')),
+        NavigationDestination(icon: Icon(Icons.map_outlined), label: tr('nav.map')),
+        NavigationDestination(icon: Icon(Icons.search), label: tr('nav.search')),
+        NavigationDestination(icon: Icon(Icons.person_outline), label: tr('nav.profile')),
       ],
     );
   }
@@ -677,6 +731,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 ),
                 const SizedBox(height: AppSpacing.sm),
+                NotificationBell(
+                  asListTile: true,
+                  onBeforeOpen: () => Navigator.pop(sheetContext),
+                ),
                 if (!session.isAdmin) ...[
                   _SheetActionTile(
                     icon: Icons.receipt_long_outlined,
@@ -740,6 +798,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       Navigator.pushNamed(context, AppRoutes.driverHome);
                     },
                   ),
+                _SheetActionTile(
+                  icon: Icons.settings_outlined,
+                  label: 'Settings',
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    Navigator.pushNamed(context, AppRoutes.settings);
+                  },
+                ),
                 _SheetActionTile(
                   icon: Icons.logout,
                   label: 'Log Out',
@@ -847,7 +913,7 @@ class _SearchBar extends StatelessWidget {
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
-                  'Search shops or essential items...',
+                  tr('home.search_hint'),
                   style: TextStyle(color: context.appColors.textSecondary),
                 ),
               ),
@@ -1017,7 +1083,7 @@ class _AdBannerCard extends StatelessWidget {
                 width: 100,
                 height: 132,
                 child: Image.network(
-                  ad.imageUrl,
+                  mediaUrl(ad.imageUrl) ?? ad.imageUrl,
                   fit: BoxFit.cover,
                   errorBuilder: (context, error, stackTrace) => Container(
                     color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -1070,27 +1136,45 @@ class _AdBannerCard extends StatelessWidget {
   }
 }
 
-/// The "Nearby Supply" teaser card linking to the real Live Map. The map
-/// backdrop is illustrative (flutter_map needs real tiles/markers, which
-/// don't render inside a small static preview), but the overlaid count is
-/// live: shop-service's actual radius-filtered `/shops` response for the
-/// resolved location, not a scripted "N shops restocked" claim.
+/// A real mini map of the shops around the user, linking to the full Live
+/// Map.
+///
+/// This used to be a hand-painted fake street grid with a live count
+/// overlaid, which looked like a map but told the user nothing about where
+/// anything actually was. It now renders the same tiles and the same
+/// category pins as the Live Map, just frozen: all gestures are off so a
+/// scroll of the home feed never gets captured by the map, and tapping
+/// anywhere opens the real thing.
 class _NearbyMapCard extends StatelessWidget {
   final bool loading;
   final int? count;
+  final List<Shop> shops;
+  final bool nationwide;
+  final ll.LatLng? centre;
   final VoidCallback onTap;
 
-  const _NearbyMapCard({required this.loading, required this.count, required this.onTap});
+  const _NearbyMapCard({
+    required this.loading,
+    required this.count,
+    required this.shops,
+    required this.nationwide,
+    required this.centre,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final me = centre;
     final label = loading
         ? 'Finding shops near you…'
-        : count != null
-            ? '$count shop${count == 1 ? '' : 's'} within 10 km'
-            : 'Enable location to see what\'s nearby';
+        : nationwide
+            // Honest: these are the closest we have, not shops near you.
+            ? '${shops.length} shop${shops.length == 1 ? '' : 's'} elsewhere in Sri Lanka'
+            : count != null
+                ? '$count shop${count == 1 ? '' : 's'} within 10 km'
+                : "Enable location to see what's nearby";
 
     return Material(
       color: colorScheme.surface,
@@ -1104,21 +1188,68 @@ class _NearbyMapCard extends StatelessWidget {
           child: Stack(
             children: [
               Positioned.fill(
-                child: CustomPaint(painter: _MiniMapPainter(Theme.of(context).brightness)),
-              ),
-              Center(
-                child: Icon(Icons.location_on, color: colorScheme.primary, size: 36),
-              ),
+                  // Swallows gestures so the map cannot steal a vertical
+                  // scroll from the home feed behind it.
+                  child: IgnorePointer(
+                    child: FlutterMap(
+                      options: MapOptions(
+                        // No GPS fix yet: still show a map of the country's
+                        // default area rather than a blank grey panel. The
+                        // caption below says location is off, so the user is
+                        // not misled into thinking these are near them.
+                        initialCenter: centre ?? kFallbackCenter,
+                        initialZoom: (centre == null || nationwide) ? 8 : 13,
+                        interactionOptions: const InteractionOptions(
+                          flags: InteractiveFlag.none,
+                        ),
+                      ),
+                      children: [
+                        const MapTileLayer(),
+                        MarkerLayer(
+                          markers: [
+                            // Capped: a dense town would otherwise stack
+                            // dozens of pins into an unreadable blob at
+                            // this size.
+                            for (final shop in shops.take(12))
+                              Marker(
+                                point: ll.LatLng(shop.latitude, shop.longitude),
+                                width: 32,
+                                height: 40,
+                                alignment: Alignment.topCenter,
+                                child: MapPin.forCategory(
+                                  context,
+                                  shop.category,
+                                  muted: !shop.isOpen,
+                                ),
+                              ),
+                            if (me != null)
+                              Marker(
+                                point: me,
+                                width: 24,
+                                height: 24,
+                                child: const MyLocationDot(),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               Positioned(
                 left: AppSpacing.md,
                 right: AppSpacing.md,
                 bottom: AppSpacing.md,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.sm,
+                  ),
                   decoration: BoxDecoration(
                     color: colorScheme.surface.withValues(alpha: 0.92),
                     borderRadius: BorderRadius.circular(AppRadius.card),
-                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 10)],
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 10),
+                    ],
                   ),
                   child: Row(
                     children: [
@@ -1126,7 +1257,10 @@ class _NearbyMapCard extends StatelessWidget {
                         width: 8,
                         height: 8,
                         margin: const EdgeInsets.only(right: 8),
-                        decoration: BoxDecoration(color: context.appColors.success, shape: BoxShape.circle),
+                        decoration: BoxDecoration(
+                          color: context.appColors.success,
+                          shape: BoxShape.circle,
+                        ),
                       ),
                       Expanded(
                         child: Text(
@@ -1136,7 +1270,7 @@ class _NearbyMapCard extends StatelessWidget {
                           style: textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
                         ),
                       ),
-                      Icon(Icons.notifications_none, color: colorScheme.outline, size: 18),
+                      Icon(Icons.chevron_right, color: colorScheme.outline, size: 18),
                     ],
                   ),
                 ),
@@ -1149,59 +1283,6 @@ class _NearbyMapCard extends StatelessWidget {
   }
 }
 
-/// A stylized street-grid pattern for the Nearby card's backdrop --
-/// decorative only, not a real map (the real one is flutter_map on the Live
-/// Map screen this card links to).
-class _MiniMapPainter extends CustomPainter {
-  final Brightness brightness;
-
-  const _MiniMapPainter(this.brightness);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final isDark = brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF16324A) : const Color(0xFFEAF3EE);
-    final block = isDark ? const Color(0xFF1D4467) : const Color(0xFFDDE9E1);
-    final road = isDark ? const Color(0xFF0F2438) : const Color(0xFFF6FAF7);
-    canvas.drawRect(Offset.zero & size, Paint()..color = bg);
-
-    // A handful of building blocks between the roads, sized/positioned by
-    // fraction of the card so it scales with different card widths.
-    final blockPaint = Paint()..color = block;
-    final blocks = [
-      const Rect.fromLTWH(0.06, 0.10, 0.22, 0.28),
-      const Rect.fromLTWH(0.34, 0.08, 0.16, 0.18),
-      const Rect.fromLTWH(0.60, 0.12, 0.30, 0.24),
-      const Rect.fromLTWH(0.08, 0.55, 0.18, 0.30),
-      const Rect.fromLTWH(0.62, 0.55, 0.26, 0.32),
-      const Rect.fromLTWH(0.34, 0.62, 0.18, 0.22),
-    ];
-    for (final b in blocks) {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(b.left * size.width, b.top * size.height, b.width * size.width,
-              b.height * size.height),
-          const Radius.circular(3),
-        ),
-        blockPaint,
-      );
-    }
-
-    // Straight avenue + cross-street grid, drawn over the blocks.
-    final roadPaint = Paint()
-      ..color = road
-      ..strokeWidth = 10;
-    canvas.drawLine(Offset(0, size.height * 0.48), Offset(size.width, size.height * 0.44), roadPaint);
-    canvas.drawLine(
-      Offset(size.width * 0.5, 0),
-      Offset(size.width * 0.46, size.height),
-      roadPaint..strokeWidth = 8,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _MiniMapPainter oldDelegate) => oldDelegate.brightness != brightness;
-}
 
 /// The "Your Contributions" row: two cards backed by the real, per-user
 /// `/crowdsource/trust-score/me` endpoint -- there's no cross-user
@@ -1345,7 +1426,7 @@ class _StaffHomeBody extends StatelessWidget {
                       ),
                       const SizedBox(height: AppSpacing.xs),
                       Text(
-                        'Hi, ${session.userName ?? 'there'}',
+                        '${tr('home.greeting')}, ${session.userName ?? ''}',
                         style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
                       ),
                       Text(
@@ -1355,6 +1436,7 @@ class _StaffHomeBody extends StatelessWidget {
                     ],
                   ),
                 ),
+                const NotificationBell(),
                 const SizedBox(width: AppSpacing.sm),
                 _CircleIconButton(
                   icon: Theme.of(context).brightness == Brightness.dark

@@ -1,4 +1,7 @@
 import json
+import secrets
+
+import httpx
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -10,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.auth import CurrentUser, get_current_user, require_roles
 from app.config import settings
 from app.database import get_db
-from app.event_bus import publish_event
+from app.event_bus import notify_users, publish_event
 from app.geo import haversine_km, haversine_m
 from app.models import (
     DeliveryAgentProfile,
@@ -88,6 +91,65 @@ def _get_agent_profile(db: Session, user_id: str) -> DeliveryAgentProfile | None
     )
 
 
+def _new_code() -> str:
+    """A 4-digit handover code.
+
+    secrets, not random: these authorise a state change, so they must not be
+    predictable from another order's code. 4 digits is the length people
+    will actually read over a counter, and guessing is not a real threat
+    because the code only works for one specific order that the guesser
+    would already have to be assigned to.
+    """
+    return f"{secrets.randbelow(10000):04d}"
+
+
+def _new_code_pair() -> tuple[str, str]:
+    """Pickup and delivery codes that are guaranteed to differ.
+
+    Two independent draws collide once in ten thousand orders, and on those
+    orders the code the shop owner reads out would also close the delivery
+    -- the agent could mark the parcel delivered without ever meeting the
+    customer. Cheap to rule out, so it is ruled out.
+    """
+    pickup = _new_code()
+    delivery = _new_code()
+    while delivery == pickup:
+        delivery = _new_code()
+    return pickup, delivery
+
+
+async def _shop_owner_id(shop_id: str) -> str | None:
+    """Who owns this shop, for notifying them about their own orders.
+
+    Returns None on any failure: a missed notification is a far smaller
+    problem than a request that fails because shop-service is busy.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            response = await client.get(f"{settings.shop_service_url}/shops/{shop_id}")
+            if response.status_code != 200:
+                return None
+            return response.json().get("owner_id")
+    except Exception:
+        return None
+
+
+async def _owns_shop(shop_id: str, user_id: str) -> bool:
+    """Ask shop-service whether this user owns that shop.
+
+    Returns False on any failure, so an unreachable shop-service denies
+    access rather than handing out pickup codes to whoever asks.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            response = await client.get(f"{settings.shop_service_url}/shops/{shop_id}")
+            if response.status_code != 200:
+                return False
+            return response.json().get("owner_id") == user_id
+    except Exception:
+        return False
+
+
 def _write_event(
     db: Session,
     order_id: str,
@@ -152,6 +214,7 @@ async def create_order(
             detail="You have cancelled too many requests today. Please try again tomorrow.",
         )
 
+    _pickup_code, _delivery_code = _new_code_pair()
     order = Order(
         customer_id=current_user.id,
         shop_id=payload.shop_id,
@@ -166,6 +229,8 @@ async def create_order(
         item_description=payload.item_description,
         status=OrderStatus.pending,
         total_amount=payload.total_amount,
+        pickup_code=_pickup_code,
+        delivery_code=_delivery_code,
     )
     db.add(order)
     db.flush()
@@ -219,7 +284,13 @@ async def list_my_orders(
         query = query.filter(Order.customer_id == current_user.id)
 
     orders = query.order_by(Order.created_at.desc()).all()
-    return [OrderResponse.from_model(order) for order in orders]
+    # The customer's own orders, so their delivery code travels with them.
+    return [
+        OrderResponse.from_model(
+            order, viewer_id=current_user.id, viewer_role=current_user.role
+        )
+        for order in orders
+    ]
 
 
 @router.get("/available", response_model=list[OrderResponse])
@@ -287,10 +358,17 @@ async def get_order(
 ):
     order = _get_order_or_404(db, order_id)
 
+    # The shop owner needs this screen too: it is where they read the pickup
+    # code to the agent at the counter.
+    is_shop_owner = False
+    if current_user.role == "shop_owner":
+        is_shop_owner = await _owns_shop(order.shop_id, current_user.id)
+
     if (
         current_user.role != "admin"
         and current_user.id != order.customer_id
         and current_user.id != order.agent_id
+        and not is_shop_owner
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -304,7 +382,14 @@ async def get_order(
         .all()
     )
 
-    response = OrderDetailResponse.from_model(order)
+    # Passing the viewer matters: without it from_model reveals neither code,
+    # and with the wrong one it would reveal both to the agent.
+    response = OrderDetailResponse.from_model(
+        order,
+        viewer_id=current_user.id,
+        viewer_role=current_user.role,
+        is_shop_owner=is_shop_owner,
+    )
     response.events = [OrderEventResponse.model_validate(e) for e in events]
     return response
 
@@ -458,6 +543,31 @@ async def update_order_status(
         if position is not None:
             agent_lat, agent_lng = position
 
+    # The two handovers must be proved, not just asserted. Checked before the
+    # geofence so a wrong code gives a clear answer rather than a distance.
+    required_code = {
+        OrderStatus.picked_up: order.pickup_code,
+        OrderStatus.delivered: order.delivery_code,
+    }.get(new_status)
+    if required_code is not None:
+        supplied = (payload.code or "").strip()
+        if not supplied:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Ask the shop owner for the pickup code."
+                    if new_status == OrderStatus.picked_up
+                    else "Ask the customer for the delivery code."
+                ),
+            )
+        # compare_digest: constant time, so a wrong code cannot be narrowed
+        # down by timing how long the rejection took.
+        if not secrets.compare_digest(supplied, required_code):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="That code does not match. Please check and try again.",
+            )
+
     # Geofencing: confirm pickup only AT the shop, confirm delivery only AT the
     # customer. If we cannot know where somebody is, we cannot check, so we skip.
     if settings.geofence_enabled and new_status in (OrderStatus.picked_up, OrderStatus.delivered):
@@ -488,6 +598,15 @@ async def update_order_status(
         order.delivered_at = now
     _write_event(db, order.id, new_status.value, agent_lat, agent_lng)
 
+    # Confirming the pickup code means the agent is holding the parcel at the
+    # shop, so the trip has started. Recording in_transit here saves a button
+    # that only ever said what had already happened.
+    auto_transit = False
+    if new_status == OrderStatus.picked_up:
+        order.status = OrderStatus.in_transit
+        _write_event(db, order.id, OrderStatus.in_transit.value, agent_lat, agent_lng)
+        auto_transit = True
+
     if new_status == OrderStatus.delivered and profile is not None:
         profile.total_deliveries += 1
         # Old rows without a promise time count as on time.
@@ -500,10 +619,30 @@ async def update_order_status(
     await publish_event(
         "order.status_changed", {"order_id": order.id, "status": order.status.value}
     )
+    if auto_transit:
+        await publish_event(
+            "order.status_changed",
+            {"order_id": order.id, "status": OrderStatus.in_transit.value},
+        )
     if new_status == OrderStatus.delivered:
         await publish_event("order.delivered", {"order_id": order.id})
+        # The shop owner handed the parcel over at the counter and hears
+        # nothing more about it otherwise; this closes the loop for them.
+        owner_id = await _shop_owner_id(order.shop_id)
+        if owner_id is not None:
+            await notify_users(
+                [owner_id],
+                "Parcel received",
+                f"The customer has received the parcel for order {order.id[:8]}.",
+                kind="order",
+                link={"route": "order", "id": order.id},
+            )
 
-    return OrderResponse.from_model(order)
+    return OrderResponse.from_model(
+        order,
+        viewer_id=current_user.id,
+        viewer_role=current_user.role,
+    )
 
 
 @router.post("/{order_id}/notify-customer", response_model=NotifyCustomerResponse)
@@ -644,3 +783,39 @@ async def rate_order(
         {"order_id": order.id, "agent_id": order.agent_id, "rating": payload.rating},
     )
     return OrderResponse.from_model(order)
+
+
+@router.get("/shop/{shop_id}", response_model=list[OrderResponse])
+async def list_shop_orders(
+    shop_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Orders placed with one shop, for its owner.
+
+    This is where the owner reads the pickup code out to the agent, so the
+    response carries it for them and for nobody else.
+    """
+    is_admin = current_user.role == "admin"
+    if not is_admin and not await _owns_shop(shop_id, current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view orders for your own shop",
+        )
+
+    orders = (
+        db.query(Order)
+        .filter(Order.shop_id == shop_id)
+        .order_by(Order.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    return [
+        OrderResponse.from_model(
+            order,
+            viewer_id=current_user.id,
+            viewer_role=current_user.role,
+            is_shop_owner=True,
+        )
+        for order in orders
+    ]

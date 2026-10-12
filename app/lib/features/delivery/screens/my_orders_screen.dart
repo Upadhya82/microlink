@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/l10n/app_strings.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/models/order.dart';
 import '../../../core/network/api_client.dart';
@@ -71,13 +72,13 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('My Orders')),
+      appBar: AppBar(title: Text(tr('orders.my_orders'))),
       // SRS REQ-DELIV-1: customers can start a delivery request from here.
       floatingActionButton: SessionManager.instance.isCustomer
           ? FloatingActionButton.extended(
               onPressed: _openRequestDelivery,
               icon: const Icon(Icons.add_location_alt_outlined),
-              label: const Text('Request delivery'),
+              label: Text(tr('orders.request_delivery')),
             )
           : null,
       body: RefreshIndicator(
@@ -86,8 +87,8 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
           state: _state,
           onRetry: _load,
           isEmpty: (data) => data.isEmpty,
-          emptyTitle: 'No orders yet',
-          emptyMessage: 'Delivery requests you make will show up here.',
+          emptyTitle: tr('orders.none_title'),
+          emptyMessage: tr('orders.none_body'),
           emptyIcon: Icons.receipt_long_outlined,
           loadingSkeleton: const SkeletonList(),
           builder: (context, orders) => ListView.separated(

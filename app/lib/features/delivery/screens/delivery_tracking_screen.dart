@@ -5,6 +5,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
+import '../../location/widgets/map_tile_layer.dart';
+import '../../../core/l10n/app_strings.dart';
 import '../../../core/models/order.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
@@ -119,6 +121,13 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     }
   }
 
+  /// Statuses the server will not accept without a handover code, and who
+  /// the agent has to get it from.
+  static const _codeSources = {
+    'picked_up': 'shop owner',
+    'delivered': 'customer',
+  };
+
   // The agent's GPS is sent with the status update so the server can check the
   // geofence (SRS "Update Order Status"). If GPS is not available the request
   // is still sent and the server falls back to the last saved location.
@@ -199,6 +208,14 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
   }
 
   Future<void> _advanceStatus(String nextStatus) async {
+    final source = _codeSources[nextStatus];
+    String? code;
+    if (source != null) {
+      code = await _askForCode(source);
+      // Backing out of the dialog is not a failed handover, so say nothing.
+      if (code == null) return;
+    }
+
     setState(() => _updatingStatus = true);
     try {
       final position = await _tryGetPosition();
@@ -206,6 +223,7 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
         '/delivery/orders/${widget.orderId}/status',
         body: {
           'status': nextStatus,
+          if (code != null) 'code': code,
           if (position != null) 'lat': position.$1,
           if (position != null) 'lng': position.$2,
         },
@@ -222,6 +240,64 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     } finally {
       if (mounted) setState(() => _updatingStatus = false);
     }
+  }
+
+  /// Ask the agent for the four digits the other party is holding.
+  ///
+  /// The agent never sees either code in their own app -- that is the whole
+  /// point of the handover -- so this is a plain entry box, not a confirm.
+  Future<String?> _askForCode(String source) async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text('Enter the code from the $source'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Ask the $source for their 4-digit code and type it in to '
+                'confirm the handover.',
+                style: Theme.of(dialogContext).textTheme.bodySmall,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                textAlign: TextAlign.center,
+                style: Theme.of(dialogContext).textTheme.headlineSmall?.copyWith(
+                      letterSpacing: 8,
+                      fontWeight: FontWeight.w700,
+                    ),
+                decoration: const InputDecoration(
+                  counterText: '',
+                  hintText: '0000',
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (value) => Navigator.pop(dialogContext, value.trim()),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+              child: const Text('Confirm'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    if (result == null || result.isEmpty) return null;
+    return result;
   }
 
   @override
@@ -259,6 +335,16 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
                       _EtaBanner(minutes: order.agentEtaMinutes!),
                     ],
                     const SizedBox(height: AppSpacing.lg),
+                    // The server only sends the code this viewer is entitled
+                    // to, so whichever one arrived is the one to show.
+                    if (order.pickupCode != null || order.deliveryCode != null) ...[
+                      _HandoverCodeCard(
+                        code: (order.pickupCode ?? order.deliveryCode)!,
+                        isPickup: order.pickupCode != null,
+                        status: order.status,
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                    ],
                     if (order.agentId != null)
                       _DriverInfoRow(agentPerformance: _agentPerformance, agentName: _agentName, order: order)
                     else
@@ -290,10 +376,7 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
       child: FlutterMap(
         options: MapOptions(initialCenter: destination, initialZoom: 15),
         children: [
-          TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'com.microlink.app',
-          ),
+          MapTileLayer(),
           MarkerLayer(
             markers: [
               if (order.pickupLat != null && order.pickupLng != null)
@@ -318,12 +401,16 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     final isTerminal = order.status == 'delivered' || order.status == 'cancelled';
     if (!isAssignedAgent || isTerminal) return const SizedBox.shrink();
 
-    final currentIndex = orderStatusFlow.indexOf(order.status);
-    if (currentIndex == -1 || currentIndex >= orderStatusFlow.length - 1) {
-      return const SizedBox.shrink();
-    }
-    final nextStatus = orderStatusFlow[currentIndex + 1];
-    final needsGeofence = nextStatus == 'picked_up' || nextStatus == 'delivered';
+    // The agent only ever confirms the two handovers. Leaving the shop puts
+    // the order in transit on the server, so there is no button for it here
+    // -- pressing one would only repeat what the pickup already said.
+    final nextStatus = switch (order.status) {
+      'accepted' => 'picked_up',
+      'picked_up' || 'in_transit' => 'delivered',
+      _ => null,
+    };
+    if (nextStatus == null) return const SizedBox.shrink();
+    final needsGeofence = true;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -336,7 +423,9 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
         ),
         const SizedBox(height: AppSpacing.md),
         AppButton(
-          label: 'Mark as ${formatOrderStatusLabel(nextStatus)}',
+          label: nextStatus == 'picked_up'
+              ? 'Confirm pickup with the shop code'
+              : 'Confirm delivery with the customer code',
           isLoading: _updatingStatus,
           onPressed: () => _advanceStatus(nextStatus),
         ),
@@ -875,4 +964,80 @@ String _relativeTime(DateTime dt) {
   if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
   if (diff.inHours < 24) return '${diff.inHours} hr ago';
   return '${diff.inDays} d ago';
+}
+
+
+/// The four digits this viewer has to read out to the delivery agent.
+///
+/// Shown to the shop owner (pickup) and the customer (delivery); the agent
+/// is sent neither by the server, so this card never appears for them.
+class _HandoverCodeCard extends StatelessWidget {
+  final String code;
+  final bool isPickup;
+  final String status;
+
+  const _HandoverCodeCard({
+    required this.code,
+    required this.isPickup,
+    required this.status,
+  });
+
+  /// Whether this code is the one being asked for right now. A delivery code
+  /// shown while the order is still sitting at the shop is just noise.
+  bool get _isDue => isPickup
+      ? status == 'accepted'
+      : status == 'picked_up' || status == 'in_transit';
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final done = isPickup
+        ? status != 'accepted'
+        : status == 'delivered' || status == 'cancelled';
+
+    return AppCard(
+      child: Row(
+        children: [
+          Icon(
+            done ? Icons.check_circle_rounded : Icons.pin_rounded,
+            color: done ? Colors.green : colorScheme.primary,
+            size: 32,
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isPickup ? tr('orders.pickup_code') : tr('orders.delivery_code'),
+                  style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                Text(
+                  done
+                      ? 'Already used.'
+                      : _isDue
+                          ? 'Read this out to the delivery agent.'
+                          : isPickup
+                              ? 'Give this to the agent when they collect the order.'
+                              : 'Give this to the agent when your order arrives.',
+                  style: textTheme.labelSmall
+                      ?.copyWith(color: context.appColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Text(
+            code,
+            style: textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              letterSpacing: 4,
+              color: done ? context.appColors.textSecondary : colorScheme.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

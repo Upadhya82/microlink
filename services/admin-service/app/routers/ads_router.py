@@ -1,12 +1,13 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, get_current_user, require_admin
 from app.database import get_db
 from app.event_bus import publish_event
+from app.images import ImageRejected, process_image
 from app.models import AdStatus, Advertisement
 from app.schemas import AdCreateRequest, AdResponse, AdReviewUpdateRequest, AdStatusUpdateRequest
 
@@ -121,3 +122,50 @@ async def delete_ad(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ad not found")
     db.delete(ad)
     db.commit()
+
+
+@router.post("/{ad_id}/image", response_model=AdResponse)
+async def upload_ad_image(
+    ad_id: str,
+    file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Upload the banner for an advertisement.
+
+    A separate call from the submission, so a slow upload cannot lose the ad
+    copy that was already typed in.
+    """
+    ad = db.get(Advertisement, ad_id)
+    if ad is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ad not found")
+    if ad.submitted_by_user_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only change the image of an ad you submitted.",
+        )
+
+    raw = await file.read()
+    try:
+        processed = process_image(raw, file.content_type)
+    except ImageRejected as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    ad.image = processed
+    ad.has_image = True
+    db.commit()
+    db.refresh(ad)
+    return ad
+
+
+@router.get("/{ad_id}/image")
+async def get_ad_image(ad_id: str, db: Session = Depends(get_db)):
+    """Public: approved banners are shown on every customer Home screen."""
+    ad = db.get(Advertisement, ad_id)
+    if ad is None or not ad.has_image or ad.image is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No image for this ad")
+    return Response(
+        content=ad.image,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )

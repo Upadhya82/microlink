@@ -7,3 +7,5 @@ pydantic-settings==2.7.0
 pyjwt==2.10.1
 redis==5.2.1
 httpx==0.28.1
+Pillow==11.0.0
+python-multipart==0.0.20

@@ -1,10 +1,12 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import Base, engine, run_light_migrations
+from app.database import Base, SessionLocal, engine, run_light_migrations
+from app.dormant import run_dormant_loop
 from app.routers import (
     alerts_router,
     analytics_router,
@@ -22,7 +24,16 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     # 2. add the new columns to tables that already exist in an older shop_db
     run_light_migrations(engine)
-    yield
+    # 3. follow up on shops that have been closed for a fortnight
+    sweeper = asyncio.create_task(run_dormant_loop(SessionLocal))
+    try:
+        yield
+    finally:
+        sweeper.cancel()
+        try:
+            await sweeper
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="MicroLink Shop Service", version="2.0.0", lifespan=lifespan)

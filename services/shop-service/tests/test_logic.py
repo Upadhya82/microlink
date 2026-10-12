@@ -242,3 +242,45 @@ class GeoTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReverseGeocodeFormattingTests(unittest.TestCase):
+    def test_picks_the_three_most_specific_address_parts(self):
+        result = logic.format_reverse_geocode(
+            {
+                "lat": "6.8412",
+                "lon": "79.8731",
+                "address": {
+                    "house_number": "12",
+                    "road": "Galle Road",
+                    "suburb": "Dehiwala",
+                    "city": "Colombo",
+                    "country": "Sri Lanka",
+                },
+            }
+        )
+        self.assertEqual(result["address"], "12, Galle Road, Dehiwala")
+        self.assertEqual(result["name"], "12")
+        self.assertAlmostEqual(result["latitude"], 6.8412)
+        self.assertAlmostEqual(result["longitude"], 79.8731)
+
+    def test_falls_back_to_display_name_without_a_structured_address(self):
+        result = logic.format_reverse_geocode(
+            {"lat": "7.2906", "lon": "80.6337", "display_name": "Kandy, Central Province, Sri Lanka"}
+        )
+        self.assertEqual(result["address"], "Kandy, Central Province, Sri Lanka")
+        self.assertEqual(result["name"], "Kandy")
+
+    def test_duplicate_parts_are_not_repeated(self):
+        result = logic.format_reverse_geocode(
+            {"lat": "6.0", "lon": "80.0", "address": {"village": "Weligama", "town": "Weligama"}}
+        )
+        self.assertEqual(result["address"], "Weligama")
+
+    def test_missing_or_invalid_coordinates_give_none(self):
+        self.assertIsNone(logic.format_reverse_geocode({"address": {"road": "Galle Road"}}))
+        self.assertIsNone(logic.format_reverse_geocode({"lat": "abc", "lon": "80.0"}))
+        self.assertIsNone(logic.format_reverse_geocode(None))
+
+    def test_point_with_no_address_at_all_gives_none(self):
+        self.assertIsNone(logic.format_reverse_geocode({"lat": "6.0", "lon": "80.0"}))

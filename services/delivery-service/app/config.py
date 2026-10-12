@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # Without this the service used its own default password and could not log in
     # to the compose Postgres.
     database_url_override: str | None = Field(default=None, alias="DATABASE_URL")
+    redis_url: str | None = Field(default=None, alias="REDIS_URL")
+
+    # Ownership of a shop lives in shop-service; this service asks it rather
+    # than keeping a copy of the shop table that could drift.
+    shop_service_url: str = "http://shop-service:8000"
 
     @property
     def database_url(self) -> str:
@@ -60,3 +65,17 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def _apply_redis_url(current: Settings) -> None:
+    """docker-compose passes one REDIS_URL; split it into the host/port event_bus.py reads."""
+    if not current.redis_url:
+        return
+    from urllib.parse import urlparse
+
+    parsed = urlparse(current.redis_url)
+    current.redis_host = parsed.hostname or current.redis_host
+    current.redis_port = parsed.port or current.redis_port
+
+
+_apply_redis_url(settings)

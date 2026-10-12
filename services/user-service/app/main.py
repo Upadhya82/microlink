@@ -2,13 +2,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import Base, engine
-from app.routers import auth_router, users_router
+from app.database import Base, engine, run_light_migrations
+from app.routers import auth_router, documents_router, users_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    run_light_migrations(engine)
     yield
 
 
@@ -27,6 +28,9 @@ app.add_middleware(
 )
 
 app.include_router(auth_router.router)
+# Before users_router: its /users/documents/... and /users/me/documents paths
+# must be matched before /users/{user_id} swallows the literal segment.
+app.include_router(documents_router.router)
 app.include_router(users_router.router)
 
 

@@ -142,3 +142,31 @@ async def geocode_landmark(text: str) -> dict | None:
         logger.warning("Nominatim geocoding failed - trying the built-in list", exc_info=True)
 
     return logic.lookup_landmark(query)
+
+
+async def reverse_geocode(lat: float, lng: float) -> dict | None:
+    """Turn a point the user dropped on the map into a readable address.
+
+    Needed because a customer can pick a delivery location anywhere in Sri
+    Lanka by dragging a pin, and "6.9271, 79.8612" is not something a
+    delivery agent can navigate to.
+
+    Never raises. Returns {"name", "address", "latitude", "longitude",
+    "source"} or None when the point cannot be resolved (mid-ocean, geocoder
+    unreachable), leaving the caller to fall back to raw coordinates.
+    """
+    try:
+        headers = {"User-Agent": "MicroLink/1.0 (local shop discovery app)", "Accept": "application/json"}
+        params = {"lat": lat, "lon": lng, "format": "jsonv2", "zoom": 18, "addressdetails": 1}
+        async with httpx.AsyncClient(timeout=settings.geocode_timeout_seconds) as client:
+            response = await client.get(settings.nominatim_reverse_url, params=params, headers=headers)
+            response.raise_for_status()
+            payload = response.json()
+    except Exception:
+        logger.warning("Nominatim reverse geocoding failed", exc_info=True)
+        return None
+
+    place = logic.format_reverse_geocode(payload)
+    if place is None:
+        return None
+    return {**place, "source": "openstreetmap"}

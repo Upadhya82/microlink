@@ -23,6 +23,7 @@ SERVICE_MAP = {
     "/crowdsource": "http://crowdsource-service:8000",
     "/admin": "http://admin-service:8000",
     "/ads": "http://admin-service:8000",
+    "/notifications": "http://admin-service:8000",
 }
 
 # httpx already decodes the body, so these upstream headers no longer match it.
@@ -67,7 +68,10 @@ async def gateway_proxy(request: Request, path: str):
     headers.pop("host", None)
     body = await request.body()
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    # 60s because photo/document uploads are slow on a phone connection.
+    # follow_redirects: a service's 307 points at an internal Docker hostname the
+    # phone cannot reach, so the gateway has to follow it itself.
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
         try:
             res = await client.request(
                 method=request.method,

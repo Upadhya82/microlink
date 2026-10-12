@@ -35,6 +35,48 @@ async def publish_event(event_type: str, payload: dict[str, Any]) -> None:
         logger.exception("Failed to publish event %s", event_type)
 
 
+# A notification "kind" tells the app which icon/colour to use and nothing else.
+NOTIFICATION_KINDS = (
+    "order",
+    "shop_alert",
+    "review",
+    "account",
+    "report",
+    "delivery_request",
+    "general",
+)
+
+
+async def notify_users(
+    user_ids: list[str],
+    title: str,
+    body: str,
+    kind: str = "general",
+    link: dict | None = None,
+) -> None:
+    """Ask admin-service to store an in-app notification for each user.
+
+    Every service calls this instead of writing notifications itself -- the
+    rows live in admin-service's database, which already subscribes to the
+    whole event bus (see its app/activity.py). `link` is an optional
+    {"route": "shop", "id": "..."} hint the app uses to decide where tapping
+    the notification should go.
+    """
+    targets = sorted({u for u in user_ids if u})
+    if not targets:
+        return
+    await publish_event(
+        "notify.users",
+        {
+            "user_ids": targets,
+            "title": title,
+            "body": body,
+            "kind": kind,
+            "link": link or {},
+        },
+    )
+
+
 async def subscribe_events(handler: Callable[[dict], Awaitable[None]]) -> None:
     """Long-running task: listen on the shared events channel and invoke
     handler(envelope) for every message. Intended to be started as an

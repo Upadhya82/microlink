@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -20,8 +21,14 @@ class Settings(BaseSettings):
     # no API key. Swap for a self-hosted OSRM/Valhalla URL in production.
     osrm_base_url: str = "https://router.project-osrm.org"
 
+    # docker-compose passes a full DATABASE_URL; when set it wins over the parts above.
+    database_url_override: str | None = Field(default=None, alias="DATABASE_URL")
+    redis_url: str | None = Field(default=None, alias="REDIS_URL")
+
     @property
     def database_url(self) -> str:
+        if self.database_url_override:
+            return self.database_url_override
         return (
             f"postgresql+psycopg2://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
@@ -32,3 +39,17 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def _apply_redis_url(current: Settings) -> None:
+    """docker-compose passes one REDIS_URL; split it into the host/port event_bus.py reads."""
+    if not current.redis_url:
+        return
+    from urllib.parse import urlparse
+
+    parsed = urlparse(current.redis_url)
+    current.redis_host = parsed.hostname or current.redis_host
+    current.redis_port = parsed.port or current.redis_port
+
+
+_apply_redis_url(settings)

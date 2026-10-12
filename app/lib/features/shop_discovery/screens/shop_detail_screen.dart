@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/utils/media_url.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/models/shop.dart';
 import '../../../core/network/api_client.dart';
@@ -16,6 +17,7 @@ import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/rating_chip.dart';
+import '../../orders/cart_controller.dart';
 import '../shop_discovery_support.dart';
 
 /// Everything the Shop Detail screen needs, loaded together so the whole
@@ -272,6 +274,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      bottomNavigationBar: _CartBar(shopId: widget.shopId),
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -546,6 +549,7 @@ class _ShopDetailBody extends StatelessWidget {
                 ],
                 const SizedBox(height: AppSpacing.xl),
                 _ProductsSection(
+                  shop: data.shop.shop,
                   products: data.products,
                   stockFilter: stockFilter,
                   onFilterChanged: onStockFilterChanged,
@@ -674,7 +678,7 @@ class _PhotoHeroState extends State<_PhotoHero> {
                       itemCount: photos.length,
                       onPageChanged: (index) => setState(() => _page = index),
                       itemBuilder: (context, index) => Image.network(
-                        photos[index],
+                        mediaUrl(photos[index]) ?? photos[index],
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) => _fallback(context),
                       ),
@@ -799,11 +803,13 @@ class _AlertCard extends StatelessWidget {
 // ==========================================================================
 
 class _ProductsSection extends StatelessWidget {
+  final Shop shop;
   final List<ProductEntry> products;
   final String stockFilter;
   final ValueChanged<String> onFilterChanged;
 
   const _ProductsSection({
+    required this.shop,
     required this.products,
     required this.stockFilter,
     required this.onFilterChanged,
@@ -873,7 +879,11 @@ class _ProductsSection extends StatelessWidget {
             Column(
               children: [
                 for (var i = 0; i < visible.length; i++)
-                  _ProductRow(entry: visible[i], showDivider: i != visible.length - 1),
+                  _ProductRow(
+                    shop: shop,
+                    entry: visible[i],
+                    showDivider: i != visible.length - 1,
+                  ),
               ],
             ),
         ],
@@ -911,10 +921,15 @@ class _StockSummary extends StatelessWidget {
 }
 
 class _ProductRow extends StatelessWidget {
+  final Shop shop;
   final ProductEntry entry;
   final bool showDivider;
 
-  const _ProductRow({required this.entry, required this.showDivider});
+  const _ProductRow({
+    required this.shop,
+    required this.entry,
+    required this.showDivider,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -932,6 +947,8 @@ class _ProductRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          _ProductThumbnail(product: product, soldOut: soldOut),
+          const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -945,6 +962,17 @@ class _ProductRow extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+                if (product.description.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    product.description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.bodySmall?.copyWith(
+                      color: context.appColors.textSecondary,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 3),
                 Row(
                   children: [
@@ -967,10 +995,46 @@ class _ProductRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
-          Text(
-            'Rs. ${product.price.toStringAsFixed(2)}',
-            style: textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (product.hasDiscount)
+                Text(
+                  'Rs. ${product.price.toStringAsFixed(2)}',
+                  style: textTheme.labelSmall?.copyWith(
+                    color: context.appColors.textSecondary,
+                    decoration: TextDecoration.lineThrough,
+                  ),
+                ),
+              Text(
+                'Rs. ${product.finalPrice.toStringAsFixed(2)}',
+                style: textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: product.hasDiscount ? context.appColors.success : null,
+                ),
+              ),
+              if (product.hasDiscount)
+                Container(
+                  margin: const EdgeInsets.only(top: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: context.appColors.success,
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                  ),
+                  child: Text(
+                    '-${product.discountPercent}%',
+                    style: textTheme.labelSmall?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 10,
+                    ),
+                  ),
+                ),
+            ],
           ),
+          const SizedBox(width: AppSpacing.sm),
+          _AddToCartControl(shop: shop, product: product, soldOut: soldOut),
         ],
       ),
     );
@@ -1171,6 +1235,217 @@ class _ReplyDialogState extends State<_ReplyDialog> {
           child: const Text('Post reply'),
         ),
       ],
+    );
+  }
+}
+
+// ==========================================================================
+// Ordering
+// ==========================================================================
+
+/// Add-to-cart control for one product row: a compact "Add" button that
+/// becomes a stepper once the product is in the cart.
+///
+/// An order belongs to exactly one shop (delivery-service gives it a single
+/// `shop_id` and one agent), so adding from a second shop asks before
+/// replacing the cart rather than quietly discarding it.
+class _AddToCartControl extends StatelessWidget {
+  final Shop shop;
+  final Product product;
+  final bool soldOut;
+
+  const _AddToCartControl({
+    required this.shop,
+    required this.product,
+    required this.soldOut,
+  });
+
+  Future<void> _add(BuildContext context) async {
+    final cart = CartController.instance;
+    if (cart.wouldReplaceCart(shop.id)) {
+      final replace = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Start a new cart?'),
+          content: Text(
+            'Your cart has items from ${cart.shopName ?? 'another shop'}. '
+            'An order can only come from one shop, so adding this will empty it.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Keep cart'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Start new'),
+            ),
+          ],
+        ),
+      );
+      if (replace != true) return;
+    }
+    cart.add(product, shopId: shop.id, shopName: shop.name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (soldOut) return const SizedBox(width: 4);
+
+    return AnimatedBuilder(
+      animation: CartController.instance,
+      builder: (context, _) {
+        final quantity = CartController.instance.shopId == shop.id
+            ? CartController.instance.quantityOf(product.id)
+            : 0;
+
+        if (quantity == 0) {
+          return IconButton(
+            tooltip: 'Add to cart',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _add(context),
+            icon: Icon(
+              Icons.add_shopping_cart,
+              size: 20,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          );
+        }
+
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: 'Remove one',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => CartController.instance.remove(product.id),
+              icon: const Icon(Icons.remove_circle_outline, size: 20),
+            ),
+            Text('$quantity', style: Theme.of(context).textTheme.titleSmall),
+            IconButton(
+              tooltip: 'Add one',
+              visualDensity: VisualDensity.compact,
+              // Capped at what the shop says it has on the shelf.
+              onPressed: product.stockQuantity > 0 && quantity >= product.stockQuantity
+                  ? null
+                  : () => _add(context),
+              icon: const Icon(Icons.add_circle_outline, size: 20),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Floating "N items · Rs. X — View cart" bar, shown only while this
+/// shop's cart has something in it.
+class _CartBar extends StatelessWidget {
+  final String shopId;
+
+  const _CartBar({required this.shopId});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: CartController.instance,
+      builder: (context, _) {
+        final cart = CartController.instance;
+        if (cart.isEmpty || cart.shopId != shopId) return const SizedBox.shrink();
+
+        final colorScheme = Theme.of(context).colorScheme;
+        return Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Material(
+            color: colorScheme.primary,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            elevation: 6,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              onTap: () => Navigator.pushNamed(context, AppRoutes.checkout),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.lg,
+                  vertical: AppSpacing.md,
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.shopping_cart_outlined, color: colorScheme.onPrimary, size: 20),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        '${cart.itemCount} ${cart.itemCount == 1 ? 'item' : 'items'}'
+                        '  ·  Rs. ${cart.total.toStringAsFixed(2)}',
+                        style: TextStyle(
+                          color: colorScheme.onPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      'View cart',
+                      style: TextStyle(
+                        color: colorScheme.onPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Icon(Icons.chevron_right, color: colorScheme.onPrimary),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+
+/// Square product photo, or a neutral placeholder when the owner has not
+/// uploaded one yet. Sized small enough that a long product list still
+/// scrolls smoothly on a cheap phone.
+class _ProductThumbnail extends StatelessWidget {
+  final Product product;
+  final bool soldOut;
+
+  const _ProductThumbnail({required this.product, required this.soldOut});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final url = mediaUrl(product.imageUrl);
+
+    return Opacity(
+      opacity: soldOut ? 0.45 : 1,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.input),
+        child: SizedBox(
+          width: 52,
+          height: 52,
+          child: url == null
+              ? ColoredBox(
+                  color: colorScheme.surfaceContainerHighest,
+                  child: Icon(
+                    Icons.inventory_2_outlined,
+                    size: 22,
+                    color: context.appColors.textSecondary,
+                  ),
+                )
+              : Image.network(
+                  url,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => ColoredBox(
+                    color: colorScheme.surfaceContainerHighest,
+                    child: Icon(
+                      Icons.broken_image_outlined,
+                      size: 22,
+                      color: context.appColors.textSecondary,
+                    ),
+                  ),
+                ),
+        ),
+      ),
     );
   }
 }

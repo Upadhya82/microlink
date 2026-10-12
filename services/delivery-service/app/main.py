@@ -1,10 +1,12 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import Base, engine
+from app.database import Base, SessionLocal, engine
+from app.expiry import run_expiry_loop
 from app.migrations import run_startup_migrations
 from app.routers import agents_router, orders_router
 
@@ -17,7 +19,15 @@ async def lifespan(app: FastAPI):
     # missing COLUMN to tables that an older version of this service created.
     Base.metadata.create_all(bind=engine)
     run_startup_migrations(engine)
-    yield
+    sweeper = asyncio.create_task(run_expiry_loop(SessionLocal))
+    try:
+        yield
+    finally:
+        sweeper.cancel()
+        try:
+            await sweeper
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="MicroLink Delivery Service", version="1.1.0", lifespan=lifespan)
