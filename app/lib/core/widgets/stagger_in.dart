@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_motion.dart';
@@ -37,6 +39,11 @@ class _StaggerInState extends State<StaggerIn> with SingleTickerProviderStateMix
     curve: AppMotion.enter,
   );
 
+  /// Held so it can be cancelled: the list may scroll this item away before
+  /// its turn comes, and an uncancelled delay would stay pending after the
+  /// widget was disposed.
+  Timer? _startTimer;
+
   @override
   void initState() {
     super.initState();
@@ -44,15 +51,13 @@ class _StaggerInState extends State<StaggerIn> with SingleTickerProviderStateMix
     if (delay == Duration.zero) {
       _controller.forward();
     } else {
-      Future.delayed(delay, () {
-        // The list may have scrolled this item away before its turn came.
-        if (mounted) _controller.forward();
-      });
+      _startTimer = Timer(delay, _controller.forward);
     }
   }
 
   @override
   void dispose() {
+    _startTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }

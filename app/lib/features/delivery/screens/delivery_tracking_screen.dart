@@ -224,7 +224,7 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
         '/delivery/orders/${widget.orderId}/status',
         body: {
           'status': nextStatus,
-          if (code != null) 'code': code,
+          'code': ?code,
           if (position != null) 'lat': position.$1,
           if (position != null) 'lng': position.$2,
         },

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 /// A short, subtle fade + rise-in used when content finishes loading. Keep
@@ -31,21 +33,24 @@ class _FadeInState extends State<FadeIn> with SingleTickerProviderStateMixin {
     end: Offset.zero,
   ).animate(_fade);
 
+  /// Held so it can be cancelled: a bare Future.delayed stays pending after
+  /// the widget is gone, which leaks and makes widget tests fail on
+  /// "a Timer is still pending even after the widget tree was disposed".
+  Timer? _startTimer;
+
   @override
   void initState() {
     super.initState();
     if (widget.delay == Duration.zero) {
       _controller.forward();
     } else {
-      Future.delayed(widget.delay, () {
-        // The screen can be gone before the delay is up.
-        if (mounted) _controller.forward();
-      });
+      _startTimer = Timer(widget.delay, _controller.forward);
     }
   }
 
   @override
   void dispose() {
+    _startTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_motion.dart';
@@ -37,21 +39,23 @@ class _PopInState extends State<PopIn> with SingleTickerProviderStateMixin {
   late final AnimationController _controller =
       AnimationController(vsync: this, duration: widget.duration);
 
+  /// Held so it can be cancelled on dispose; an uncancelled delay stays
+  /// pending after the widget is gone.
+  Timer? _startTimer;
+
   @override
   void initState() {
     super.initState();
     if (widget.delay == Duration.zero) {
       _controller.forward();
     } else {
-      Future.delayed(widget.delay, () {
-        // The screen can be gone before the delay is up.
-        if (mounted) _controller.forward();
-      });
+      _startTimer = Timer(widget.delay, _controller.forward);
     }
   }
 
   @override
   void dispose() {
+    _startTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }

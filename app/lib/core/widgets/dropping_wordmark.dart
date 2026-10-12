@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'sculpted.dart';
@@ -66,11 +68,13 @@ class _DroppingWordmarkState extends State<DroppingWordmark>
     duration: const Duration(milliseconds: 2600),
   );
 
+  /// Held so it can be cancelled on dispose.
+  Timer? _startTimer;
+
   @override
   void initState() {
     super.initState();
-    Future.delayed(widget.delay, () {
-      if (!mounted) return;
+    _startTimer = Timer(widget.delay, () {
       _drop.forward();
       _sheen.repeat();
     });
@@ -78,6 +82,7 @@ class _DroppingWordmarkState extends State<DroppingWordmark>
 
   @override
   void dispose() {
+    _startTimer?.cancel();
     _drop.dispose();
     _sheen.dispose();
     super.dispose();
