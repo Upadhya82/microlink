@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import create_access_token, hash_password, verify_password
 from app.database import get_db
+from app import login_guard
 from app.event_bus import publish_event
 from app.images import ImageRejected, process_document
 from app.models import User, UserDocument, UserPreferences, UserRole
@@ -201,8 +202,17 @@ async def register_application(
 
 @router.post("/login", response_model=TokenResponse)
 async def login(payload: LoginRequest, db: Session = Depends(get_db)):
+    locked_for = await login_guard.seconds_locked(payload.email)
+    if locked_for:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed attempts. Please try again later.",
+            headers={"Retry-After": str(locked_for)},
+        )
+
     user = db.query(User).filter(User.email == payload.email).first()
     if user is None or not verify_password(payload.password, user.hashed_password):
+        await login_guard.record_failure(payload.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password"
         )
@@ -223,5 +233,6 @@ async def login(payload: LoginRequest, db: Session = Depends(get_db)):
             ),
         )
 
+    await login_guard.clear(payload.email)
     token = create_access_token(user.id, user.role, user.is_verified)
     return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
