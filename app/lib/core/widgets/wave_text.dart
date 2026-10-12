@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_motion.dart';
@@ -79,16 +81,21 @@ class _WaveTextState extends State<WaveText> with SingleTickerProviderStateMixin
   /// move them without fading them, or the line would blink out once a cycle.
   bool _firstPassDone = false;
 
+  /// Both held so they can be cancelled on dispose; uncancelled delays stay
+  /// pending after the widget is gone, which leaks and trips the widget-test
+  /// check for outstanding timers.
+  Timer? _startTimer;
+  Timer? _firstPassTimer;
+
   @override
   void initState() {
     super.initState();
-    Future.delayed(widget.delay, () {
-      if (!mounted) return;
+    _startTimer = Timer(widget.delay, () {
       if (widget.repeat) {
         _controller.repeat();
         // One cycle in, the fade has served its purpose.
-        Future.delayed(_cycle, () {
-          if (mounted) setState(() => _firstPassDone = true);
+        _firstPassTimer = Timer(_cycle, () {
+          setState(() => _firstPassDone = true);
         });
       } else {
         _controller.forward();
@@ -98,6 +105,8 @@ class _WaveTextState extends State<WaveText> with SingleTickerProviderStateMixin
 
   @override
   void dispose() {
+    _startTimer?.cancel();
+    _firstPassTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }

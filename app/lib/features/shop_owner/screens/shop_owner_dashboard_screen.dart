@@ -2188,7 +2188,7 @@ class _OrdersTabState extends State<_OrdersTab> {
           return ListView.separated(
             padding: const EdgeInsets.all(AppSpacing.lg),
             itemCount: sorted.length,
-            separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
+            separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
             itemBuilder: (context, i) =>
                 StaggerIn(index: i, child: _ShopOrderCard(order: sorted[i])),
           );
