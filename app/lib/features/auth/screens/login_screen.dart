@@ -10,6 +10,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/validators.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/required_fields_note.dart';
 import '../../../core/widgets/dropping_wordmark.dart';
 import '../../../core/widgets/obscure_reveal_controller.dart';
 import '../../../core/widgets/pop_in.dart';
@@ -129,9 +130,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   repeat: true,
                 ),
                 const SizedBox(height: AppSpacing.xxxl),
+                const RequiredFieldsNote(),
                 AppTextField(
                   controller: _emailController,
                   label: tr('auth.email'),
+                  isRequired: true,
                   keyboardType: TextInputType.emailAddress,
                   prefixIcon: Icons.email_outlined,
                   validator: Validators.email,
@@ -140,6 +143,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 AppTextField(
                   controller: _passwordController,
                   label: tr('auth.password'),
+                  isRequired: true,
                   obscureText: _obscurePassword,
                   prefixIcon: Icons.lock_outline,
                   validator: (value) => Validators.required(value, field: 'Password'),
@@ -154,6 +158,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 AppButton(
                   label: tr('auth.login'),
                   isLoading: _isSubmitting,
+                  requiresConnection: true,
                   onPressed: _isSubmitting ? null : _submit,
                 ),
                 const SizedBox(height: AppSpacing.xl),

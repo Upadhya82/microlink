@@ -30,7 +30,9 @@ Optional keys a shop entry may carry (all have defaults):
   delivery_available (bool), status ("open" / "closed" / "temporarily_closed"),
   status_reason, photos (list of http links), ratings (list of 1-5 integers,
   each stored as a rating from a different made-up customer so the trust score
-  has data). A product may carry stock_quantity and/or stock_status.
+  has data). A product may carry stock_quantity and/or stock_status, and its
+  stock_quantity must be at least settings.min_listable_stock -- a seeded
+  product below that is refused here, because customers would never see it.
 
 All seeded shops are owned by a sentinel id
 (00000000-0000-0000-0000-000000000000) so they are easy to find and wipe.
@@ -183,6 +185,14 @@ def _normalise_product(entry: dict, shop_name: str) -> dict:
 
     quantity = entry.get("stock_quantity")
     quantity = None if quantity is None else max(0, int(quantity))
+    # Seeding writes straight to the database, so it has to apply the listing
+    # rule the create endpoint applies: a product below the threshold would be
+    # seeded invisible, which looks like a seeding bug rather than low stock.
+    if not logic.is_listable(quantity, settings.min_listable_stock):
+        sys.exit(
+            f"Product stock_quantity must be at least {settings.min_listable_stock} "
+            f"({shop_name!r} / {name!r} has {quantity if quantity is not None else 'none'})."
+        )
     stock_status = logic.resolve_stock_status(
         quantity=quantity,
         explicit_status=entry.get("stock_status"),

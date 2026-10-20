@@ -13,10 +13,12 @@ so this will not pile up duplicates.
 """
 
 import argparse
+import base64
 import json
 import sys
 import urllib.error
 import urllib.request
+import uuid
 
 OWNER_EMAIL = "demo.owner@microlink.lk"
 OWNER_PASSWORD = "Passw0rd1"
@@ -66,52 +68,74 @@ SHOPS: list[tuple] = [
 ]
 
 # Per-category product catalogue: (name, description, price, stock)
+# (name, description, price, stock). Every category carries at least
+# min_products_to_verify (5) products, so a seeded shop can actually be
+# verified by an admin (item 10). Every stock here is at least
+# shop-service's min_listable_stock (5): below it the create is refused
+# with 422 and the product would simply be missing from the demo.
 PRODUCTS: dict[str, list[tuple]] = {
     "grocery": [
         ("Rice 5kg (Nadu)", "Locally milled white nadu rice", 1250, 40),
         ("Red Lentils 1kg", "Imported masoor dhal", 420, 25),
-        ("Coconut Oil 1L", "Cold pressed, unrefined", 980, 4),
-        ("Milk Powder 400g", "Full cream", 1480, 0),
+        ("Coconut Oil 1L", "Cold pressed, unrefined", 980, 14),
+        ("Milk Powder 400g", "Full cream", 1480, 22),
+        ("Sugar 1kg", "White granulated", 320, 60),
     ],
     "restaurant": [
         ("Rice & Curry (Chicken)", "Five vegetable curries with chicken", 650, 30),
         ("Kottu Roti", "Chicken kottu with cheese", 850, 20),
         ("Fresh Lime Juice", "No added sugar", 250, 50),
+        ("String Hoppers (10)", "With coconut sambol", 400, 25),
+        ("Watalappan", "Jaggery and coconut custard", 350, 18),
     ],
     "pharmacy": [
         ("Paracetamol 500mg (10)", "Fever and pain relief", 60, 100),
         ("Digital Thermometer", "Fast read, 10 seconds", 1200, 8),
-        ("Antiseptic Liquid 250ml", "For cuts and grazes", 540, 3),
+        ("Antiseptic Liquid 250ml", "For cuts and grazes", 540, 13),
+        ("Face Masks (50)", "Three-ply, disposable", 850, 30),
+        ("Vitamin C 500mg (30)", "Chewable tablets", 920, 16),
     ],
     "electronics": [
         ("USB-C Charger 25W", "Fast charge, 1 year warranty", 2400, 15),
         ("Bluetooth Earbuds", "6 hour battery, charging case", 4900, 6),
-        ("Power Bank 10000mAh", "Dual output", 3800, 2),
+        ("Power Bank 10000mAh", "Dual output", 3800, 12),
+        ("HDMI Cable 2m", "4K, braided", 1150, 20),
+        ("Phone Case (clear)", "Shockproof corners", 790, 35),
     ],
     "clothing": [
         ("Cotton Sarong", "Handloom, assorted colours", 1500, 18),
         ("School Shirt (White)", "Poly-cotton, sizes 8-16", 1100, 24),
-        ("Batik Shawl", "Hand-dyed", 2600, 5),
+        ("Batik Shawl", "Hand-dyed", 2600, 9),
+        ("Denim Jeans", "Straight fit, sizes 30-38", 3400, 14),
+        ("Cotton T-shirt", "Plain, assorted colours", 1250, 40),
     ],
     "hardware": [
         ("Hammer 16oz", "Fibreglass handle", 1450, 12),
         ("Paint Brush Set (5)", "Synthetic bristle", 890, 20),
         ("LED Bulb 9W", "Warm white, E27", 320, 60),
+        ("Measuring Tape 5m", "Steel blade, lock", 680, 16),
+        ("Padlock 40mm", "Brass, two keys", 540, 22),
     ],
     "stationery": [
         ("Exercise Book (80 pages)", "Ruled, pack of 5", 450, 80),
         ("Ballpoint Pens (10)", "Blue ink", 300, 45),
         ("Geometry Box", "Compass, ruler, protractor", 750, 10),
+        ("A4 Paper (500 sheets)", "80gsm, copier grade", 1850, 12),
+        ("Pencil Set (12)", "HB, with eraser tips", 420, 50),
     ],
     "bakery": [
         ("Fish Bun", "Freshly baked, spicy", 90, 40),
         ("Seeni Sambol Bun", "Caramelised onion filling", 90, 35),
-        ("Butter Cake (500g)", "Traditional recipe", 1200, 6),
+        ("Butter Cake (500g)", "Traditional recipe", 1200, 11),
+        ("Kimbula Bun", "Sugar-crusted, crocodile shape", 110, 28),
+        ("Egg Roll", "Spiced potato filling", 130, 24),
     ],
     "other": [
         ("Bottled Water 1L", "Chilled", 120, 100),
         ("Phone Top-up Card", "Any network", 500, 50),
         ("Umbrella", "Compact, wind resistant", 1350, 9),
+        ("Rechargeable Torch", "USB charging, 3 modes", 1600, 14),
+        ("Mosquito Coils (10)", "Eight-hour burn", 280, 45),
     ],
 }
 
@@ -136,6 +160,85 @@ def request(method: str, url: str, token: str | None = None, body: dict | None =
         return 0, str(exc)
 
 
+# A tiny valid PNG, used as the placeholder for each document the demo
+# owner has to supply. Inline so this script keeps needing nothing but the
+# standard library.
+PLACEHOLDER_PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAPAAAACgCAIAAAC9uXYyAAABRElEQVR42u3SQREAMAjAsDFBSEIaWlHBh0sk9BpZ/eCKLwGGBkODocHQGBoMDYYGQ4OhMTQYGgwNhgZDY2gwNBgaDA2GxtBgaDA0GBoMjaHB0GBoMDQYGkODocHQYGgwNIYGQ4OhwdAYGgwNhgZDg6ExNBgaDA2GBkNjaDA0GBoMDYbG0GBoMDQYGgyNocHQYGgwNBgaQ4OhwdBgaDA0hgZDg6HB0GBoDA2GBkODoTE0GBoMDYYGQ2NoMDQYGgwNhsbQYGgwNBgaDI2hwdBgaDA0GBpDg6HB0GBoMDSGBkODocHQYGgMDYYGQ4OhMTQYGgwNhgZDY2gwNBgaDA2GxtBgaDA0GBoMjaHB0GBoMDQYGkODocHQYGgwNIYGQ4OhwdBgaAwNhgZDg6HB0BgaDA2GBkNjaDA0GBoMDYbG0GBoMDTsGCF0Amq+qgrFAAAAAElFTkSuQmCC"
+)
+
+# Mirrors REQUIRED_DOCUMENTS[shop_owner] in user-service.
+OWNER_DOCUMENT_TYPES = ("national_id", "business_registration", "profile_photo")
+
+
+def multipart_body(fields: list[tuple[str, str]], files: list[tuple[str, str, bytes]]):
+    """Encode a multipart/form-data body with the standard library only.
+
+    Returns ``(content_type, body)``. Written out by hand because this
+    script deliberately has no dependencies, and urllib has no multipart
+    support of its own.
+    """
+    boundary = "----MicroLinkSeed" + uuid.uuid4().hex
+    crlf = "\r\n"
+    parts: list[bytes] = []
+    for name, value in fields:
+        parts.append(
+            (
+                f"--{boundary}{crlf}"
+                f'Content-Disposition: form-data; name="{name}"{crlf}{crlf}'
+                f"{value}{crlf}"
+            ).encode()
+        )
+    for name, filename, payload in files:
+        parts.append(
+            (
+                f"--{boundary}{crlf}"
+                f'Content-Disposition: form-data; name="{name}"; '
+                f'filename="{filename}"{crlf}'
+                f"Content-Type: image/png{crlf}{crlf}"
+            ).encode()
+            + payload
+            + crlf.encode()
+        )
+    parts.append(f"--{boundary}--{crlf}".encode())
+    return f"multipart/form-data; boundary={boundary}", b"".join(parts)
+
+
+def apply_as_owner(base: str) -> None:
+    """Register the demo shop owner through the application endpoint.
+
+    Does nothing useful if the account already exists (the server answers
+    409), which is what makes re-running the seed safe.
+    """
+    document = base64.b64decode(PLACEHOLDER_PNG_B64)
+    fields = [
+        ("email", OWNER_EMAIL),
+        ("password", OWNER_PASSWORD),
+        ("full_name", OWNER_NAME),
+        ("role", "shop_owner"),
+        ("business_name", OWNER_NAME),
+    ]
+    files = []
+    for doc_type in OWNER_DOCUMENT_TYPES:
+        fields.append(("doc_types", doc_type))
+        files.append(("files", f"{doc_type}.png", document))
+
+    content_type, body = multipart_body(fields, files)
+    req = urllib.request.Request(
+        f"{base}/auth/register-application",
+        data=body,
+        headers={"Content-Type": content_type},
+        method="POST",
+    )
+    try:
+        urllib.request.urlopen(req, timeout=30).read()
+    except urllib.error.HTTPError as exc:
+        if exc.code != 409:  # 409 = the demo owner is already there
+            print(f"  ! could not apply as the demo owner: {exc.code} {exc.read()[:200]}")
+    except Exception as exc:
+        print(f"  ! could not apply as the demo owner: {exc}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="http://localhost:8080/api")
@@ -148,16 +251,10 @@ def main() -> int:
         return 1
 
     # The demo owner must exist and be verified before it can create shops.
-    request(
-        "POST",
-        f"{base}/auth/register",
-        body={
-            "email": OWNER_EMAIL,
-            "password": OWNER_PASSWORD,
-            "full_name": OWNER_NAME,
-            "role": "shop_owner",
-        },
-    )
+    # Item 16: a shop owner cannot be created through /auth/register any
+    # more -- it has to apply with its documents in the same request -- so
+    # the seed sends a placeholder document for each required type.
+    apply_as_owner(base)
     status, payload = request(
         "POST", f"{base}/auth/login", body={"email": OWNER_EMAIL, "password": OWNER_PASSWORD}
     )

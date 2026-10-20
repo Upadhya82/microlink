@@ -6,8 +6,11 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
 import '../../location/widgets/map_tile_layer.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/models/order.dart';
+import '../../../core/models/shop.dart';
+import '../../../core/utils/route_args.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/session_manager.dart';
@@ -37,6 +40,8 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
   ViewState<DeliveryOrder> _state = const ViewLoading();
   bool _updatingStatus = false;
   bool _notifying = false;
+  bool _openingNavigation = false;
+  bool _confirmingReceipt = false;
   Timer? _pollTimer;
 
   // Customer rating of the agent, shown once the order is delivered.
@@ -208,6 +213,48 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     }
   }
 
+  /// Only the customer, and only while the parcel is with the driver.
+  bool _canConfirmReceipt(DeliveryOrder order) =>
+      SessionManager.instance.userId == order.customerId &&
+      (order.status == 'picked_up' || order.status == 'in_transit');
+
+  /// The customer confirms the delivery themselves, instead of the driver
+  /// typing their code -- for when the driver's phone has no signal.
+  Future<void> _confirmReceipt(DeliveryOrder order) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Got your order?'),
+        content: const Text(
+          'Confirm only once the order is in your hands. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not yet'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Yes, I have it'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _confirmingReceipt = true);
+    try {
+      await ApiClient.instance.post('/delivery/orders/${order.id}/confirm-delivery');
+      if (!mounted) return;
+      await _fetchOrder();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _confirmingReceipt = false);
+    }
+  }
+
   Future<void> _advanceStatus(String nextStatus) async {
     final source = _codeSources[nextStatus];
     String? code;
@@ -260,7 +307,9 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
             children: [
               Text(
                 'Ask the $source for their 4-digit code and type it in to '
-                'confirm the handover.',
+                'confirm the handover. No signal? The $source can tap '
+                '"${source == 'shop owner' ? 'Handed to driver' : 'I received my order'}" '
+                'in their own app instead.',
                 style: Theme.of(dialogContext).textTheme.bodySmall,
               ),
               const SizedBox(height: AppSpacing.md),
@@ -346,13 +395,22 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
                       ),
                       const SizedBox(height: AppSpacing.lg),
                     ],
+                    if (_canConfirmReceipt(order)) ...[
+                      AppButton(
+                        label: 'I received my order',
+                        icon: Icons.check_circle_outline,
+                        isLoading: _confirmingReceipt,
+                        onPressed: () => _confirmReceipt(order),
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                    ],
                     if (order.agentId != null)
                       _DriverInfoRow(agentPerformance: _agentPerformance, agentName: _agentName, order: order)
                     else
                       _WaitingForAgentRow(),
                     const SizedBox(height: AppSpacing.xl),
                     if (order.status == 'cancelled')
-                      _CancelledBanner()
+                      _CancelledBanner(note: order.cancellationNote)
                     else
                       _StatusTimeline(order: order),
                     const SizedBox(height: AppSpacing.xl),
@@ -372,10 +430,23 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
 
   Widget _buildMap(DeliveryOrder order) {
     final destination = ll.LatLng(order.deliveryLat, order.deliveryLng);
+    final pickup = order.pickupLat != null && order.pickupLng != null
+        ? ll.LatLng(order.pickupLat!, order.pickupLng!)
+        : null;
     return SizedBox(
       height: 220,
       child: FlutterMap(
-        options: MapOptions(initialCenter: destination, initialZoom: 15),
+        // Both ends of the trip in view, not just the drop-off: centred on
+        // the customer at street zoom, the shop pin was usually off-screen.
+        options: pickup == null
+            ? MapOptions(initialCenter: destination, initialZoom: 15)
+            : MapOptions(
+                initialCameraFit: CameraFit.coordinates(
+                  coordinates: [pickup, destination],
+                  padding: const EdgeInsets.all(48),
+                  maxZoom: 16,
+                ),
+              ),
         children: [
           MapTileLayer(),
           MarkerLayer(
@@ -396,6 +467,37 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     );
   }
 
+  /// Open the live map with a route to the shop or the customer, where the
+  /// agent can switch on turn-by-turn voice guidance.
+  Future<void> _navigate(DeliveryOrder order, {required bool toPickup}) async {
+    double? lat = toPickup ? order.pickupLat : order.deliveryLat;
+    double? lng = toPickup ? order.pickupLng : order.deliveryLng;
+    String label = toPickup ? (order.pickupAddress ?? 'Shop') : order.deliveryAddress;
+    if (toPickup && (lat == null || lng == null)) {
+      // Orders placed before the pickup point was recorded: ask the shop.
+      setState(() => _openingNavigation = true);
+      try {
+        final response = await ApiClient.instance.get('/shops/${order.shopId}');
+        final shop = Shop.fromJson(Map<String, dynamic>.from(response as Map));
+        lat = shop.latitude;
+        lng = shop.longitude;
+        label = shop.name;
+      } on ApiException catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        return;
+      } finally {
+        if (mounted) setState(() => _openingNavigation = false);
+      }
+    }
+    if (!mounted) return;
+    Navigator.pushNamed(
+      context,
+      AppRoutes.liveMap,
+      arguments: LiveMapArgs(destinationLat: lat, destinationLng: lng, destinationLabel: label),
+    );
+  }
+
   Widget _buildAgentAction(DeliveryOrder order) {
     final session = SessionManager.instance;
     final isAssignedAgent = session.isDeliveryAgent && session.userId == order.agentId;
@@ -412,9 +514,19 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     };
     if (nextStatus == null) return const SizedBox.shrink();
     final needsGeofence = true;
+    final toPickup = nextStatus == 'picked_up';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // The leg the agent is on now: to the shop until the parcel is
+        // collected, then to the customer.
+        AppButton(
+          label: toPickup ? 'Navigate to the shop' : 'Navigate to the customer',
+          icon: Icons.navigation_rounded,
+          isLoading: _openingNavigation,
+          onPressed: () => _navigate(order, toPickup: toPickup),
+        ),
+        const SizedBox(height: AppSpacing.md),
         AppButton(
           label: 'Notify customer (ETA)',
           variant: AppButtonVariant.outlined,
@@ -826,6 +938,12 @@ class _StatusTimeline extends StatelessWidget {
 }
 
 class _CancelledBanner extends StatelessWidget {
+  /// Item 8: "Cancelled by the shop: out of gas" rather than just
+  /// "cancelled". Null on orders cancelled before the server recorded who.
+  final String? note;
+
+  const _CancelledBanner({this.note});
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -842,7 +960,7 @@ class _CancelledBanner extends StatelessWidget {
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Text(
-              'This order was cancelled.',
+              note ?? 'This order was cancelled.',
               style: TextStyle(color: colorScheme.onErrorContainer, fontWeight: FontWeight.w600),
             ),
           ),
@@ -1021,7 +1139,8 @@ class _HandoverCodeCard extends StatelessWidget {
                           ? 'Read this out to the delivery agent.'
                           : isPickup
                               ? 'Give this to the agent when they collect the order.'
-                              : 'Give this to the agent when your order arrives.',
+                              : 'Give this to the agent when your order arrives, '
+                                  'or tap "I received my order" below.',
                   style: textTheme.labelSmall
                       ?.copyWith(color: context.appColors.textSecondary),
                 ),

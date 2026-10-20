@@ -70,6 +70,12 @@ class DeliveryAgentProfile(Base):
 
     current_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
     current_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Item 13: when that position was last shared. The available-orders list
+    # is filtered against it, so a driver seeing an empty list has to be told
+    # how old it is -- a stale position is why Colombo orders went missing.
+    location_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     is_available: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # SRS REQ-AGENT-5: performance profile.
@@ -110,6 +116,27 @@ class Order(Base):
         Enum(OrderStatus, name="order_status"), default=OrderStatus.pending, nullable=False
     )
     total_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    # Item 8: who cancelled, and why. NULL on orders cancelled before this
+    # shipped, which is honest -- nobody recorded it -- and those count
+    # towards neither the customer's limit nor a shop's cancellation streak.
+    # "customer" | "shop" | "admin" | "system" (the unclaimed-order sweep).
+    cancelled_by: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    cancel_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Item 12: shop-service holds this order's stock between these two
+    # timestamps. `stock_reserved_at` with no `stock_released_at` on a
+    # cancelled order means the shop is still holding stock for an order that
+    # no longer exists, which the expiry sweep retries.
+    stock_reserved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    stock_released_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     picked_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

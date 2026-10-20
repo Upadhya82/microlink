@@ -10,6 +10,7 @@ from app.models import User, UserDocument, UserPreferences, UserRole
 from app.schemas import (
     DOCUMENT_TYPES,
     REGISTERABLE_ROLES,
+    ROLES_NEEDING_APPLICATION,
     LoginRequest,
     RegisterRequest,
     TokenResponse,
@@ -27,6 +28,17 @@ _ROLES_NEEDING_VERIFICATION = {UserRole.shop_owner, UserRole.delivery_agent}
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+    # Item 16: point an applicant at the endpoint that will actually work,
+    # rather than refusing with "contact an administrator" when there is
+    # nothing an administrator needs to do.
+    if payload.role in ROLES_NEEDING_APPLICATION:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Shop owners and delivery agents must apply with their "
+                "documents. Use /auth/register-application."
+            ),
+        )
     if payload.role not in REGISTERABLE_ROLES:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -113,7 +125,10 @@ async def register_application(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This account type does not need document review. Use /auth/register.",
         )
-    if user_role not in REGISTERABLE_ROLES:
+    # Item 16: these are exactly the roles that may apply here. Checked
+    # against its own set rather than REGISTERABLE_ROLES, which now means
+    # "may use /auth/register" and no longer includes them.
+    if user_role not in ROLES_NEEDING_APPLICATION:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This role cannot be self-registered. Contact an administrator.",

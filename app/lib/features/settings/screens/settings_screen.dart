@@ -9,6 +9,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/stagger_in.dart';
+import '../../navigation/voice_guidance.dart';
 import '../../../core/widgets/branded_app_bar.dart';
 
 /// Settings (SRS use case "Configure Application Settings").
@@ -35,10 +36,14 @@ class SettingsScreen extends StatelessWidget {
               const SizedBox(height: AppSpacing.lg),
               StaggerIn(index: 1, child: _AppearanceSection()),
               const SizedBox(height: AppSpacing.lg),
-              StaggerIn(index: 2, child: _AboutSection()),
+              // Item 15: try the voice here, rather than finding out it is
+              // silent while driving.
+              StaggerIn(index: 2, child: const _VoiceSection()),
+              const SizedBox(height: AppSpacing.lg),
+              StaggerIn(index: 3, child: _AboutSection()),
               if (SessionManager.instance.isLoggedIn) ...[
                 const SizedBox(height: AppSpacing.xl),
-                StaggerIn(index: 3, child: _LogoutButton()),
+                StaggerIn(index: 4, child: _LogoutButton()),
               ],
             ],
           ),
@@ -229,6 +234,71 @@ class _AppearanceSection extends StatelessWidget {
         subtitle: Text(tr('settings.dark_mode_subtitle')),
         value: isDark,
         onChanged: (_) => ThemeController.instance.toggle(Theme.of(context).brightness),
+      ),
+    );
+  }
+}
+
+/// Item 15: "Test voice" (REQ-NAV-3).
+///
+/// Voice guidance was reported as doing nothing, and there was no way to
+/// tell a muted app from a device with no voice installed for the chosen
+/// language. This speaks one sample sentence in the language that is
+/// selected right now, and says plainly when it had to fall back to
+/// English.
+class _VoiceSection extends StatefulWidget {
+  const _VoiceSection();
+
+  @override
+  State<_VoiceSection> createState() => _VoiceSectionState();
+}
+
+class _VoiceSectionState extends State<_VoiceSection> {
+  final VoiceGuidance _voice = VoiceGuidance();
+  bool _speaking = false;
+
+  @override
+  void dispose() {
+    _voice.dispose();
+    super.dispose();
+  }
+
+  Future<void> _test() async {
+    setState(() => _speaking = true);
+    try {
+      // The route screen gets its locale from navigation-service; here the
+      // language the user has chosen is the only thing to go on.
+      await _voice.setRoute(
+        const [],
+        voiceLocale: voiceLocaleFor(LanguageController.instance.code),
+      );
+      // force: a muted app must still be able to test its own voice.
+      await _voice.speak(tr('settings.voice_sample'), force: true);
+      if (!mounted) return;
+      final notice = _voice.takeFallbackNotice();
+      if (notice != null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(notice)));
+      }
+    } finally {
+      if (mounted) setState(() => _speaking = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionCard(
+      title: tr('settings.voice'),
+      subtitle: tr('settings.voice_subtitle'),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          onPressed: _speaking ? null : _test,
+          icon: Icon(_speaking ? Icons.graphic_eq_rounded : Icons.volume_up_outlined),
+          label: Text(
+            _speaking ? tr('settings.voice_testing') : tr('settings.test_voice'),
+          ),
+        ),
       ),
     );
   }

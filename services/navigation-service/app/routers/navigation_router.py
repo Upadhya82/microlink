@@ -5,11 +5,13 @@ from app import auth
 from app.auth import CurrentUser, get_current_user
 from app.database import get_db
 from app.geo import haversine_km
+from app.instructions import describe_alternative
 from app.locales import VOICE_LOCALES, get_voice_locale
 from app.models import RouteHistory, TravelMode
 from app.routing import road_route
 from app.schemas import (
     Coordinate,
+    RouteAlternative,
     OptimizeRequest,
     OptimizeResponse,
     OptimizeStop,
@@ -80,8 +82,15 @@ async def compute_route(
     legs: list[RouteLeg] = [_leg(start, end, speed_kmh) for start, end in zip(points, points[1:])]
 
     routed = await road_route(points, payload.mode, payload.preference, payload.language)
+    raw_alternatives: list = []
     if routed is not None:
-        polyline, total_distance_km, total_duration_minutes, raw_steps = routed
+        (
+            polyline,
+            total_distance_km,
+            total_duration_minutes,
+            raw_steps,
+            raw_alternatives,
+        ) = routed
         routed_by = "osrm"
     else:
         polyline = points
@@ -91,6 +100,8 @@ async def compute_route(
         # honest, where faking a single "head out" step would not be.
         raw_steps = []
         routed_by = "straight_line"
+        # No road geometry means no alternatives either.
+        raw_alternatives = []
 
     voice_locale = get_voice_locale(payload.language)
 
@@ -118,6 +129,23 @@ async def compute_route(
         steps=[RouteStep(**step) for step in raw_steps],
         preference=payload.preference,
         routed_by=routed_by,
+        # Item 2: the other ways to get there, each one ready to be shown
+        # and spoken without asking the server again.
+        alternatives=[
+            RouteAlternative(
+                polyline=alt_polyline,
+                distance_km=alt_distance_km,
+                duration_minutes=alt_duration_minutes,
+                steps=[RouteStep(**step) for step in alt_steps],
+                summary=describe_alternative(
+                    total_distance_km,
+                    total_duration_minutes,
+                    alt_distance_km,
+                    alt_duration_minutes,
+                ),
+            )
+            for alt_polyline, alt_distance_km, alt_duration_minutes, alt_steps in raw_alternatives
+        ],
     )
 
 

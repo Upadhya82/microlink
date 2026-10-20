@@ -6,7 +6,16 @@ from app.models import UserRole
 
 # Roles anyone may pick on the public register endpoint. Admins are created
 # with app/scripts/create_admin.py instead.
-REGISTERABLE_ROLES = {UserRole.user, UserRole.shop_owner, UserRole.delivery_agent}
+#
+# Item 16: a shop owner or delivery agent must apply through
+# /auth/register-application, which takes their documents in the same
+# request. /auth/register let them create an account with no documents at
+# all -- an account they could not log into, and which no admin had anything
+# to review -- so it now refuses those two roles outright.
+REGISTERABLE_ROLES = {UserRole.user}
+
+# Roles that exist but must come in through /auth/register-application.
+ROLES_NEEDING_APPLICATION = {UserRole.shop_owner, UserRole.delivery_agent}
 
 
 def check_password_strength(value: str) -> str:
@@ -53,7 +62,11 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    email: EmailStr
+    # Plain str, not EmailStr: addresses are checked when they come in
+    # (register, login, create_admin). Re-checking on the way out meant one
+    # stored address the validator dislikes -- admin@microlink.test -- made
+    # every user list containing it fail with a 500.
+    email: str
     full_name: str
     phone: str | None
     business_name: str | None = None

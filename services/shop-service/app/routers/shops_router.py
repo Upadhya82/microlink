@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, File, Resp
 from sqlalchemy import exists, func, or_
 from sqlalchemy.orm import Session
 
-from app import geo, logic
+from app import geo, listings, logic
 from app.auth import CurrentUser, get_current_user, require_roles, require_verified
 from app.config import settings
 from app import dormant
@@ -143,11 +143,19 @@ def _apply_filters(
 
 
 def _product_counts(db: Session, shop_ids: list[str]) -> dict[str, dict[str, int]]:
+    """Per shop, how many products of each stock status a customer can see.
+
+    Only listable products are counted, so a card never advertises stock that
+    the product list then hides (settings.min_listable_stock).
+    """
     if not shop_ids:
         return {}
     rows = (
         db.query(Product.shop_id, Product.stock_status, func.count(Product.id))
-        .filter(Product.shop_id.in_(shop_ids))
+        .filter(
+            Product.shop_id.in_(shop_ids),
+            Product.stock_quantity >= settings.min_listable_stock,
+        )
         .group_by(Product.shop_id, Product.stock_status)
         .all()
     )
@@ -173,12 +181,20 @@ def _photos_by_shop(db: Session, shop_ids: list[str]) -> dict[str, list[str]]:
 
 
 def _matched_products(db: Session, shop_ids: list[str], q: str | None) -> dict[str, str]:
-    """For each shop, the first product whose name matches the search text."""
+    """For each shop, the first listable product whose name matches the search text.
+
+    Hidden products are left out: naming one on the card would send the
+    customer to a shop page that does not list it.
+    """
     if not shop_ids or not q or not q.strip():
         return {}
     rows = (
         db.query(Product.shop_id, Product.name)
-        .filter(Product.shop_id.in_(shop_ids), Product.name.ilike(_like(q), escape="\\"))
+        .filter(
+            Product.shop_id.in_(shop_ids),
+            Product.name.ilike(_like(q), escape="\\"),
+            Product.stock_quantity >= settings.min_listable_stock,
+        )
         .order_by(Product.name)
         .all()
     )
@@ -210,6 +226,9 @@ def _to_response(
     response.low_stock_count = low_stock
     response.out_of_stock_count = out_of_stock
     response.product_count = in_stock + low_stock + out_of_stock
+    # Only listable products are counted at all (see _product_counts), so
+    # this is the same total under the name item 10's rule needs.
+    response.listable_product_count = response.product_count
     response.availability = logic.availability_level(in_stock, low_stock, out_of_stock)
     response.matched_product = matched_product
     return response
@@ -417,6 +436,20 @@ async def list_my_shops(
     return _build_responses(db, [_Row(shop) for shop in shops], None)
 
 
+# Declared before /landmark so the literal "suggestions" is never read as a
+# landmark name, and before /{shop_id} for the same reason as the others.
+@router.get("/landmark/suggestions", response_model=list[LandmarkInfo])
+async def landmark_suggestions():
+    """Landmarks the app can offer as examples (item 1, REQ-SEARCH-3).
+
+    "Search near a landmark" existed but nobody could find it, partly
+    because an empty box gives no clue what it will accept. These are the
+    built-in names, which resolve without the online geocoder, so a
+    suggestion is always one that works.
+    """
+    return [LandmarkInfo(query=item["name"], **item) for item in logic.landmark_suggestions()]
+
+
 @router.get("/landmark", response_model=LandmarkSearchResponse)
 async def search_by_landmark(
     landmark: str = Query(..., min_length=2, max_length=150, description='For example "Central Bus Stand"'),
@@ -488,8 +521,26 @@ async def verify_shop(
     current_user: CurrentUser = Depends(require_roles("admin")),
     db: Session = Depends(get_db),
 ):
-    """REQ-ADMIN-1: approve (or un-approve) a shop registration."""
+    """REQ-ADMIN-1: approve (or un-approve) a shop registration.
+
+    Item 10: a shop needs at least `min_products_to_verify` listable
+    products before it can be approved -- verifying an empty storefront
+    sends customers to a shop with nothing to buy. Un-verifying is always
+    allowed, so a mistake can always be undone.
+    """
     shop = _get_shop_or_404(db, shop_id)
+
+    if payload.is_verified:
+        listable = listings.listable_product_count(db, shop.id)
+        if not listings.meets_verification_threshold(listable):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"This shop needs at least {settings.min_products_to_verify} "
+                    f"products in stock before it can be verified (it has {listable})."
+                ),
+            )
+
     shop.is_verified = payload.is_verified
     shop.verified_at = datetime.now(timezone.utc) if payload.is_verified else None
     shop.verified_by = current_user.id if payload.is_verified else None

@@ -120,6 +120,11 @@ class TrustScoreResponse(BaseModel):
     total_reports: int
     validated_reports: int
     updated_at: datetime
+    # Item 7: whether this account may confirm somebody else's shop report.
+    # Only filled in for /trust-score/me, where the caller's verified flag is
+    # known; null elsewhere, which the app reads as "do not know".
+    can_confirm_shops: bool | None = None
+    min_confirm_trust: int | None = None
 
 
 # ------------------------------------------------- shop corrections (CROWD-5)

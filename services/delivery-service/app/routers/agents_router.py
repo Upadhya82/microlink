@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, get_current_user, require_roles
+from app.config import settings
 from app.database import get_db
 from app.event_bus import publish_event
 from app.models import DeliveryAgentProfile, Order
@@ -20,6 +21,18 @@ from app.scoring import on_time_percentage, performance_score
 router = APIRouter(prefix="/delivery/agents", tags=["delivery-agents"])
 
 require_delivery_agent = require_roles("delivery_agent")
+
+
+def _with_radius(profile: DeliveryAgentProfile) -> AgentProfileResponse:
+    """The profile plus the radius its job list is filtered against (item 13).
+
+    The driver's app needs the number to explain an empty list, and reading
+    it from the server means the two can never disagree about what "nearby"
+    means.
+    """
+    response = AgentProfileResponse.model_validate(profile)
+    response.service_radius_km = settings.agent_service_radius_km
+    return response
 
 
 def _get_profile_or_404(db: Session, user_id: str) -> DeliveryAgentProfile:
@@ -76,7 +89,7 @@ async def get_my_profile(
     current_user: CurrentUser = Depends(require_delivery_agent),
     db: Session = Depends(get_db),
 ):
-    return _get_profile_or_404(db, current_user.id)
+    return _with_radius(_get_profile_or_404(db, current_user.id))
 
 
 @router.patch("/me/location", response_model=AgentProfileResponse)
@@ -88,9 +101,12 @@ async def update_my_location(
     profile = _get_profile_or_404(db, current_user.id)
     profile.current_lat = payload.lat
     profile.current_lng = payload.lng
+    # Item 13: remember WHEN, so the app can tell a driver with an empty job
+    # list that it is matching against a position from hours ago.
+    profile.location_updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(profile)
-    return profile
+    return _with_radius(profile)
 
 
 @router.patch("/me/availability", response_model=AgentProfileResponse)
@@ -113,7 +129,7 @@ async def update_my_availability(
     profile.is_available = payload.is_available
     db.commit()
     db.refresh(profile)
-    return profile
+    return _with_radius(profile)
 
 
 @router.get("", response_model=list[AgentProfileResponse])

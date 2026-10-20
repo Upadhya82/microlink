@@ -30,6 +30,13 @@ class Settings(BaseSettings):
         return value
     jwt_algorithm: str = "HS256"
 
+    # Item 7: only an account an admin has verified, whose crowdsource
+    # reports have not been rejected, may confirm a neighbour's shop report.
+    # Every customer is created already verified, so the flag alone would let
+    # anyone through -- the trust score is what shuts out accounts whose
+    # reports admins have thrown out.
+    min_confirm_trust: int = 50
+
     # docker-compose passes a full DATABASE_URL; when set it wins over the parts above.
     database_url_override: str | None = Field(default=None, alias="DATABASE_URL")
     redis_url: str | None = Field(default=None, alias="REDIS_URL")

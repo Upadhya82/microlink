@@ -13,6 +13,7 @@ import '../../../core/utils/validators.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/required_fields_note.dart';
 import '../../../core/widgets/branded_app_bar.dart';
 
 /// A one-shot crowdsourcing form: lets any signed-in user suggest a shop
@@ -208,9 +209,11 @@ class _AddNewShopScreenState extends State<AddNewShopScreen> {
                   Theme.of(context).textTheme.bodyMedium?.copyWith(color: context.appColors.textSecondary),
             ),
             const SizedBox(height: AppSpacing.xl),
+            const RequiredFieldsNote(),
             AppTextField(
               controller: _nameController,
               label: 'Shop name',
+              isRequired: true,
               hint: 'e.g. Perera Super Grocers',
               validator: (v) => Validators.required(v, field: 'Shop name'),
             ),
@@ -260,6 +263,7 @@ class _AddNewShopScreenState extends State<AddNewShopScreen> {
             AppTextField(
               controller: _addressController,
               label: 'Address',
+              isRequired: true,
               hint: 'e.g. 24 Marine Drive, Wellawatte',
               validator: (v) => Validators.required(v, field: 'Address'),
             ),
@@ -267,6 +271,7 @@ class _AddNewShopScreenState extends State<AddNewShopScreen> {
             AppTextField(
               controller: _descController,
               label: 'Description',
+              isRequired: true,
               hint: 'What does this shop sell?',
               maxLines: 3,
               validator: (v) => Validators.required(v, field: 'Description'),
@@ -302,6 +307,7 @@ class _AddNewShopScreenState extends State<AddNewShopScreen> {
             AppButton(
               label: 'Submit for Review',
               isLoading: _isSubmitting,
+              requiresConnection: true,
               onPressed: _isSubmitting ? null : _submit,
             ),
           ],

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_strings.dart';
+import '../network/connectivity_controller.dart';
+
 enum AppButtonVariant { primary, secondary, outlined, text }
 
 /// The one button widget every screen should use, so buttons look and behave
@@ -13,6 +16,16 @@ class AppButton extends StatelessWidget {
   final bool isLoading;
   final bool expand;
 
+  /// Item 14: this button writes something, so it is disabled while the
+  /// phone is offline, with a long-press explaining why. Offline is
+  /// read-only: a submit that cannot reach the server either fails in the
+  /// user's face or, worse, looks like it worked.
+  ///
+  /// Opt-in rather than the default, because plenty of buttons are
+  /// navigation ("See all reviews", "Keep cart") and must keep working with
+  /// no signal.
+  final bool requiresConnection;
+
   const AppButton({
     super.key,
     required this.label,
@@ -21,12 +34,26 @@ class AppButton extends StatelessWidget {
     this.icon,
     this.isLoading = false,
     this.expand = true,
+    this.requiresConnection = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (!requiresConnection) return _build(context, blocked: false);
+    // Rebuilds with the connection, so the button comes back by itself when
+    // the signal does.
+    return AnimatedBuilder(
+      animation: ConnectivityController.instance,
+      builder: (context, _) => _build(
+        context,
+        blocked: ConnectivityController.instance.isOffline,
+      ),
+    );
+  }
+
+  Widget _build(BuildContext context, {required bool blocked}) {
     final colorScheme = Theme.of(context).colorScheme;
-    final effectiveOnPressed = isLoading ? null : onPressed;
+    final effectiveOnPressed = (isLoading || blocked) ? null : onPressed;
 
     final child = isLoading
         ? SizedBox(
@@ -66,6 +93,10 @@ class AppButton extends StatelessWidget {
       AppButtonVariant.text => TextButton(onPressed: effectiveOnPressed, child: child),
     };
 
-    return expand ? SizedBox(width: double.infinity, child: button) : button;
+    final sized = expand ? SizedBox(width: double.infinity, child: button) : button;
+    // Disabled on its own looks like a bug; the reason has to be reachable.
+    return blocked
+        ? Tooltip(message: tr('offline.action_blocked'), child: sized)
+        : sized;
   }
 }

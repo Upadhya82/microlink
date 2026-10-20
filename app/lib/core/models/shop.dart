@@ -1,4 +1,5 @@
 import '../l10n/app_strings.dart';
+import '../constants/app_constants.dart';
 
 /// Mirrors shop-service's `ShopResponse` schema.
 class Shop {
@@ -22,6 +23,19 @@ class Shop {
   final double? distanceKm;
   final String? reason;
 
+  /// Item 6: whether an admin has verified this shop.
+  ///
+  /// Deliberately nullable: a page cached before the app read this field
+  /// has no value for it, and guessing "not verified" would brand every
+  /// cached shop with a chip it may not deserve. Null means "we do not
+  /// know yet", and nothing is shown until the next refresh.
+  final bool? isVerified;
+
+  /// Item 10: how many of this shop's products customers can actually see.
+  /// A shop needs [AppConstants.minProductsToVerify] of them before an
+  /// admin can verify it.
+  final int listableProductCount;
+
   const Shop({
     required this.id,
     required this.ownerId,
@@ -42,7 +56,23 @@ class Shop {
     required this.updatedAt,
     this.distanceKm,
     this.reason,
+    this.isVerified,
+    this.listableProductCount = 0,
   });
+
+  /// Whether this shop has enough listed products to be verified.
+  bool get hasEnoughProductsToVerify =>
+      listableProductCount >= AppConstants.minProductsToVerify;
+
+  /// "3 of 5 products listed", for the owner dashboard and admin review.
+  String get productProgressLabel =>
+      '$listableProductCount of ${AppConstants.minProductsToVerify} products listed';
+
+  /// Show the "Not verified" chip only when the server actually said so.
+  bool get showsNotVerifiedChip => isVerified == false;
+
+  /// The owner is waiting on an admin.
+  bool get awaitingVerification => isVerified == false;
 
   factory Shop.fromJson(Map<String, dynamic> json) {
     return Shop(
@@ -65,6 +95,10 @@ class Shop {
       updatedAt: DateTime.parse(json['updated_at'] as String),
       distanceKm: (json['distance_km'] as num?)?.toDouble(),
       reason: json['reason'] as String?,
+      // Absent (an older cached page) stays null rather than becoming false.
+      isVerified: json['is_verified'] as bool?,
+      listableProductCount:
+          (json['listable_product_count'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -105,6 +139,12 @@ class Product {
   }) : finalPrice = finalPrice ?? price;
 
   bool get hasDiscount => discountPercent > 0;
+
+  /// True when customers cannot see this product: shop-service only lists
+  /// products with at least [AppConstants.minListableStock] in stock. The
+  /// owner still sees it, so it can be restocked.
+  bool get isHiddenFromCustomers =>
+      stockQuantity < AppConstants.minListableStock;
 
   /// What the customer saves, for the "you save Rs.X" line.
   double get savings => price - finalPrice;

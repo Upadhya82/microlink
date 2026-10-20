@@ -5,6 +5,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/location/delivery_location_store.dart';
 import '../../../core/location/location_service.dart';
 import '../../../core/models/picked_location.dart';
+import '../../../core/models/shop.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors_extension.dart';
@@ -121,6 +122,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       }
     } on ApiException catch (e) {
       if (!mounted) return;
+      // 409: the shop sold out between browsing and paying. Nothing was
+      // saved, so the cart is brought back in step with what is really on
+      // the shelf and the customer can place it again.
+      if (e.statusCode == 409) {
+        await _resyncCartWithStock();
+        if (!mounted) return;
+        setState(() {
+          _placing = false;
+          _error = e.message;
+        });
+        return;
+      }
       setState(() {
         _placing = false;
         _error = e.message;
@@ -131,6 +144,26 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         _placing = false;
         _error = 'Could not place your order. Please try again.';
       });
+    }
+  }
+
+  /// Re-read the shop's products and trim the cart to what is left.
+  ///
+  /// Best effort: if this fails the customer still sees the server's reason,
+  /// and the cart is simply left as it was.
+  Future<void> _resyncCartWithStock() async {
+    final cart = CartController.instance;
+    final shopId = cart.shopId;
+    if (shopId == null) return;
+    try {
+      final response = await ApiClient.instance.get('/shops/$shopId/products');
+      final products = (response as List)
+          .whereType<Map<String, dynamic>>()
+          .map(Product.fromJson)
+          .toList();
+      cart.syncWithStock(products);
+    } catch (_) {
+      // Leave the cart alone; the error message above is what matters.
     }
   }
 
@@ -408,6 +441,9 @@ class _CheckoutBar extends StatelessWidget {
                 child: AppButton(
                   label: tr('delivery.place_order'),
                   isLoading: placing,
+                  // Item 14: an order placed with no signal would be a
+                  // promise the app cannot keep.
+                  requiresConnection: true,
                   onPressed: onPlaceOrder,
                 ),
               ),

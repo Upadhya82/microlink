@@ -8,6 +8,20 @@ from sqlalchemy.orm import Session
 from app.models import UserTrustScore
 
 
+def can_confirm_reports(
+    *, is_verified: bool, score: float | None, minimum: int
+) -> bool:
+    """Whether this account may confirm somebody else's shop report (item 7).
+
+    A pure rule so the endpoint and the "can I see the screen?" answer can
+    never disagree. A missing score counts as the starting 50, because that
+    is what a new account gets.
+    """
+    if not is_verified:
+        return False
+    return (50.0 if score is None else score) >= minimum
+
+
 def get_or_create_trust_score(db: Session, user_id: str) -> UserTrustScore:
     trust = db.query(UserTrustScore).filter(UserTrustScore.user_id == user_id).first()
     if trust is None:

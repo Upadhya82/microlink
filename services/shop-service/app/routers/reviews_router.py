@@ -6,9 +6,15 @@ GET  /shops/{id}/reviews  public list of ratings with comments and owner replies
 POST /shops/{id}/reviews/{review_id}/reply   the owner replies, once per review
 
 Why this lives here: until now nothing in the system ever wrote a shop's
-rating_avg, so the trust score was always 0. crowdsource-service's
-`feedback.submitted` event only carries an order id, not a shop id, so it
-cannot update a shop. This endpoint gives the app a working way to rate a shop.
+rating_avg, so the trust score was always 0. This endpoint gives the app a
+working way to rate a shop.
+
+Item 3: a shop's reviews now come from two places. This router handles the
+ones typed on the shop page (source="shop"); app/feedback_reviews.py turns
+a customer's post-delivery feedback into the rest (source="order"), which
+the app labels "Verified order". crowdsource-service's `feedback.submitted`
+event does carry a shop id -- the older comment here saying it does not was
+out of date.
 """
 
 from datetime import datetime, timezone
@@ -24,6 +30,10 @@ from app.ratings import refresh_shop_rating
 from app.schemas import RatingCreateRequest, ReviewReplyRequest, ReviewResponse
 
 router = APIRouter(prefix="/shops/{shop_id}", tags=["shop reviews"])
+
+# A review typed on the shop page, as opposed to feedback that arrived from a
+# delivered order (see app/feedback_reviews.py).
+SHOP_SOURCE = "shop"
 
 
 def _get_shop(db: Session, shop_id: str) -> Shop:
@@ -62,13 +72,21 @@ async def rate_shop(
             status_code=status.HTTP_403_FORBIDDEN, detail="You cannot rate your own shop"
         )
 
+    # Item 3: only the review they typed here, not the one their order
+    # feedback produced (source="order"), which they cannot edit.
     review = (
         db.query(ShopRating)
-        .filter(ShopRating.shop_id == shop_id, ShopRating.user_id == current_user.id)
+        .filter(
+            ShopRating.shop_id == shop_id,
+            ShopRating.user_id == current_user.id,
+            ShopRating.source == SHOP_SOURCE,
+        )
         .first()
     )
     if review is None:
-        review = ShopRating(shop_id=shop_id, user_id=current_user.id)
+        review = ShopRating(
+            shop_id=shop_id, user_id=current_user.id, source=SHOP_SOURCE
+        )
         db.add(review)
     review.rating = payload.rating
     review.comment = payload.comment.strip()

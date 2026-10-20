@@ -13,6 +13,7 @@ import '../../../core/utils/validators.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/required_fields_note.dart';
 import '../../../core/widgets/branded_app_bar.dart';
 
 const Map<String, String> _conditionLabels = {
@@ -235,6 +236,7 @@ class _ReportRoadIssueScreenState extends State<ReportRoadIssueScreen> {
                   Theme.of(context).textTheme.bodyMedium?.copyWith(color: context.appColors.textSecondary),
             ),
             const SizedBox(height: AppSpacing.xl),
+            const RequiredFieldsNote(),
             Text('Issue type', style: Theme.of(context).textTheme.labelLarge),
             const SizedBox(height: AppSpacing.sm),
             GridView.count(
@@ -295,6 +297,7 @@ class _ReportRoadIssueScreenState extends State<ReportRoadIssueScreen> {
             AppTextField(
               controller: _descController,
               label: 'Description',
+              isRequired: true,
               hint: 'Describe what you saw',
               maxLines: 3,
               validator: (v) => Validators.required(v, field: 'Description'),

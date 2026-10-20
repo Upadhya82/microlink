@@ -23,6 +23,8 @@ void main() {
     // "MicroLink" and "Welcome back" are drawn one letter per Text widget by
     // the wordmark and wave animations, so neither matches as a whole string.
     expect(find.text('Log In'), findsOneWidget);
-    expect(find.text('Email'), findsOneWidget);
+    // Item 5: required fields carry a " *", so the label is "Email *".
+    expect(find.text('Email *'), findsOneWidget);
+    expect(find.text('Fields marked * are required.'), findsOneWidget);
   });
 }

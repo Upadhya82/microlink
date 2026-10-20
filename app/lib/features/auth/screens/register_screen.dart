@@ -12,6 +12,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/validators.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/required_fields_note.dart';
 import '../../../core/widgets/obscure_reveal_controller.dart';
 import '../../../core/widgets/stagger_in.dart';
 import '../../account/document_types.dart';
@@ -456,17 +457,24 @@ class _RegisterFormState extends State<_RegisterForm> {
                 ],
               ),
             ),
+          // Item 5: the * markers below only make sense with this above them.
+          const RequiredFieldsNote(bottomSpacing: AppSpacing.md),
           AppTextField(
             controller: _fullNameController,
             label: 'Full name',
+            isRequired: true,
             prefixIcon: Icons.person_outline,
             validator: (v) => Validators.required(v, field: 'Full name'),
           ),
+          // Item 5: a conditional field is marked required only when its
+          // condition holds -- a business name is required of a shop owner
+          // and asked of nobody else.
           if (_isShopOwner) ...[
             const SizedBox(height: AppSpacing.lg),
             AppTextField(
               controller: _businessNameController,
               label: 'Business name',
+              isRequired: true,
               hint: 'The name customers will see',
               prefixIcon: Icons.storefront_outlined,
               validator: (v) => Validators.required(v, field: 'Business name'),
@@ -476,6 +484,7 @@ class _RegisterFormState extends State<_RegisterForm> {
           AppTextField(
             controller: _emailController,
             label: 'Email',
+            isRequired: true,
             keyboardType: TextInputType.emailAddress,
             prefixIcon: Icons.mail_outline,
             validator: Validators.email,
@@ -483,7 +492,10 @@ class _RegisterFormState extends State<_RegisterForm> {
           const SizedBox(height: AppSpacing.lg),
           AppTextField(
             controller: _phoneController,
-            label: _isAgent ? 'Phone number' : 'Phone number (optional)',
+            label: 'Phone number',
+            // Required for a driver only, so the marker follows the rule
+            // rather than the label carrying "(optional)" in brackets.
+            isRequired: _isAgent,
             keyboardType: TextInputType.phone,
             prefixIcon: Icons.phone_outlined,
             // An agent with no phone cannot be reached by the customer whose
@@ -512,6 +524,7 @@ class _RegisterFormState extends State<_RegisterForm> {
           AppTextField(
             controller: _passwordController,
             label: 'Password',
+            isRequired: true,
             obscureText: _obscurePassword,
             prefixIcon: Icons.lock_outline,
             validator: Validators.password,
@@ -531,6 +544,7 @@ class _RegisterFormState extends State<_RegisterForm> {
           AppTextField(
             controller: _confirmPasswordController,
             label: 'Confirm password',
+            isRequired: true,
             obscureText: _obscureConfirmPassword,
             prefixIcon: Icons.lock_outline,
             validator: _validateConfirmPassword,
@@ -569,6 +583,7 @@ class _RegisterFormState extends State<_RegisterForm> {
           AppButton(
             label: widget.role.needsApproval ? 'Submit application' : 'Create account',
             isLoading: _isSubmitting,
+            requiresConnection: true,
             onPressed: _isSubmitting ? null : _submit,
           ),
           const SizedBox(height: AppSpacing.md),

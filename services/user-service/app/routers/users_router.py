@@ -70,6 +70,21 @@ async def update_my_preferences(
     return prefs
 
 
+@router.get("/internal/admin-ids")
+async def list_admin_ids(db: Session = Depends(get_db)):
+    """Which accounts are admins, for a service that needs to alert them.
+
+    Internal (item 8): api-gateway blocks /users/internal/*, so no app can
+    reach this. Inside the compose network delivery-service calls it when a
+    shop's cancellations cross the alert threshold -- it has no admin token
+    of its own, and admins live in this service's database.
+
+    Ids only, deliberately: no names, no email addresses.
+    """
+    rows = db.query(User.id).filter(User.role == UserRole.admin).all()
+    return {"admin_ids": [row.id for row in rows]}
+
+
 @router.get("", response_model=list[UserResponse])
 async def list_users(
     role: UserRole | None = Query(default=None),

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/app_constants.dart';
+import 'offline_cache.dart';
 
 /// Holds the current login session (JWT + basic user identity) in memory,
 /// persisted to disk via shared_preferences so the app stays logged in
@@ -71,6 +72,10 @@ class SessionManager extends ChangeNotifier {
     await prefs.remove(AppConstants.userIdKey);
     await prefs.remove(AppConstants.userRoleKey);
     await prefs.remove(AppConstants.userNameKey);
+    // Item 14: the offline caches hold this account's orders and
+    // notifications. The next person to sign in on this phone must not
+    // find them.
+    await OfflineCache.clearAll();
     notifyListeners();
   }
 }

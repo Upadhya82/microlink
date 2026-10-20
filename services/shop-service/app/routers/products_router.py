@@ -10,13 +10,18 @@ Stock status rules (see app/logic.py -> resolve_stock_status):
                                                  up to the low-stock limit = low_stock
   * nothing about stock is sent (smoke test)  -> in_stock
 `is_available` is kept in step so older screens keep working.
+
+Listing rule (settings.min_listable_stock, default 5): a product needs at
+least that many units to be created, and customers only see products that
+still have them. Owners and admins always see every product, so stock can
+be refilled.
 """
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app import logic
-from app.auth import CurrentUser, get_current_user
+from app import listings, logic
+from app.auth import CurrentUser, get_current_user, get_current_user_optional
 from app.config import settings
 from app.images import ImageRejected, process_image
 from app.database import get_db
@@ -37,6 +42,13 @@ def _get_owned_shop(shop_id: str, current_user: CurrentUser, db: Session) -> Sho
     return shop
 
 
+def _sees_hidden_products(shop: Shop, current_user: CurrentUser | None) -> bool:
+    """Owners and admins see products that are below the listing threshold."""
+    if current_user is None:
+        return False
+    return current_user.role == "admin" or shop.owner_id == current_user.id
+
+
 def _get_product(db: Session, shop_id: str, product_id: str) -> Product:
     product = db.get(Product, product_id)
     if product is None or product.shop_id != shop_id:
@@ -48,13 +60,19 @@ def _get_product(db: Session, shop_id: str, product_id: str) -> Product:
 async def list_products(
     shop_id: str,
     stock_status: StockStatusLiteral | None = Query(default=None, description="Only products with this stock status"),
+    current_user: CurrentUser | None = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ):
-    if db.get(Shop, shop_id) is None:
+    """Public, but a token is read when one is sent: the owner of the shop and
+    admins get the full list, everyone else only the listable products."""
+    shop = db.get(Shop, shop_id)
+    if shop is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop not found")
     query = db.query(Product).filter(Product.shop_id == shop_id)
     if stock_status is not None:
         query = query.filter(Product.stock_status == stock_status)
+    if not _sees_hidden_products(shop, current_user):
+        query = query.filter(Product.stock_quantity >= settings.min_listable_stock)
     return query.order_by(Product.name).all()
 
 
@@ -66,6 +84,15 @@ async def create_product(
     db: Session = Depends(get_db),
 ):
     _get_owned_shop(shop_id, current_user, db)
+
+    if not logic.is_listable(payload.stock_quantity, settings.min_listable_stock):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"A product needs at least {settings.min_listable_stock} in stock "
+                "to be listed."
+            ),
+        )
 
     stock_status = logic.resolve_stock_status(
         quantity=payload.stock_quantity,
@@ -122,6 +149,10 @@ async def update_product(
 
     db.commit()
     db.refresh(product)
+    # Item 10: this edit may have taken the shop below the number of
+    # products customers can see.
+    if stock_touched:
+        await listings.review_product_count(db, db.get(Shop, shop_id))
     return product
 
 
@@ -132,10 +163,12 @@ async def delete_product(
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _get_owned_shop(shop_id, current_user, db)
+    shop = _get_owned_shop(shop_id, current_user, db)
     product = _get_product(db, shop_id, product_id)
     db.delete(product)
     db.commit()
+    # Item 10: deleting a product lowers the count the same way.
+    await listings.review_product_count(db, shop)
 
 
 @router.post("/{product_id}/image", response_model=ProductResponse)

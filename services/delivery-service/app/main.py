@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, SessionLocal, engine
 from app.expiry import run_expiry_loop
+from app.timeliness import run_timeliness_loop
 from app.migrations import run_startup_migrations
 from app.routers import agents_router, orders_router
 
@@ -20,14 +21,18 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     run_startup_migrations(engine)
     sweeper = asyncio.create_task(run_expiry_loop(SessionLocal))
+    # Item 4: work out which shops keep drivers waiting, on a schedule,
+    # so the search path never has to ask.
+    timeliness = asyncio.create_task(run_timeliness_loop(SessionLocal))
     try:
         yield
     finally:
-        sweeper.cancel()
-        try:
-            await sweeper
-        except asyncio.CancelledError:
-            pass
+        for task in (sweeper, timeliness):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="MicroLink Delivery Service", version="1.1.0", lifespan=lifespan)

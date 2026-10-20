@@ -40,6 +40,23 @@ class RouteLeg(BaseModel):
     duration_minutes: float
 
 
+class RouteAlternative(BaseModel):
+    """Another way to the same destination (item 2, REQ-NAV-2).
+
+    Carries everything the chosen route carries, so selecting one in the app
+    is a swap rather than a second request: its own geometry, its own
+    distance and time, and its own turn-by-turn steps to show and speak.
+    """
+
+    polyline: list[Coordinate]
+    distance_km: float
+    duration_minutes: float
+    steps: list[RouteStep] = []
+    # A short reason this one is worth offering, e.g. "2.1 km shorter" or
+    # "6 min slower". Built by the server so every client says the same.
+    summary: str = ""
+
+
 class RouteResponse(BaseModel):
     distance_km: float
     duration_minutes: float
@@ -51,6 +68,10 @@ class RouteResponse(BaseModel):
     # "osrm" when the geometry follows real roads, "straight_line" when OSRM
     # was unreachable -- the app warns the user rather than pretending.
     routed_by: Literal["osrm", "straight_line"] = "osrm"
+    # Item 2: the other routes OSRM offered, which used to be fetched and
+    # thrown away. Empty when there is only one way, when waypoints make
+    # alternatives meaningless, or when OSRM was unreachable.
+    alternatives: list[RouteAlternative] = []
 
 
 class OptimizeStop(BaseModel):

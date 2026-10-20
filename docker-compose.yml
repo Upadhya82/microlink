@@ -135,7 +135,7 @@ services:
       - crowdsource-service
       - admin-service
     ports:
-      - "8080:8080"
+      - "${API_GATEWAY_PORT:-8081}:8080"
 
 volumes:
   pgdata:

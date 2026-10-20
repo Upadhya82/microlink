@@ -169,6 +169,38 @@ def pick_route(routes: list[dict[str, Any]], preference: str = "fastest") -> dic
     return min(usable, key=lambda r: r.get(key) if isinstance(r.get(key), (int, float)) else float("inf"))
 
 
+def describe_alternative(
+    chosen_distance_km: float,
+    chosen_duration_minutes: float,
+    distance_km: float,
+    duration_minutes: float,
+) -> str:
+    """Why an alternative is worth a look (item 2).
+
+    Leads with whichever difference is worth mentioning: a route that is
+    meaningfully shorter is usually offered because of the distance, and one
+    that is neither shorter nor faster is described as similar rather than
+    with a misleading "0 min" claim.
+    """
+    distance_delta = distance_km - chosen_distance_km
+    time_delta = duration_minutes - chosen_duration_minutes
+
+    parts: list[str] = []
+    if abs(distance_delta) >= 0.1:
+        shorter = distance_delta < 0
+        parts.append(
+            f"{abs(distance_delta):.1f} km {'shorter' if shorter else 'longer'}"
+        )
+    if abs(time_delta) >= 1:
+        faster = time_delta < 0
+        parts.append(
+            f"{round(abs(time_delta))} min {'faster' if faster else 'slower'}"
+        )
+    if not parts:
+        return "About the same"
+    return ", ".join(parts)
+
+
 def steps_from_legs(legs: list[dict[str, Any]], language: str = "en") -> list[dict[str, Any]]:
     """Flatten OSRM legs into the app's RouteStep shape.
 

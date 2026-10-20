@@ -23,6 +23,7 @@ STOCK_STATUSES = ("in_stock", "low_stock", "out_of_stock")
 ALERT_TYPES = ("general", "closure", "relocation", "special_offer")
 
 DEFAULT_LOW_STOCK_THRESHOLD = 5
+DEFAULT_MIN_LISTABLE_STOCK = 5
 
 
 # --------------------------------------------------------------------------
@@ -54,6 +55,18 @@ def derive_stock_status(quantity: int | None, threshold: int = DEFAULT_LOW_STOCK
     if quantity <= threshold:
         return "low_stock"
     return "in_stock"
+
+
+def is_listable(quantity: int | None, minimum: int = DEFAULT_MIN_LISTABLE_STOCK) -> bool:
+    """Whether customers may see a product at all.
+
+    A shelf with one or two items left is not worth an order, so a product
+    needs `minimum` units before it is listed. A missing quantity means the
+    owner never said, which is not enough to list it.
+    """
+    if quantity is None:
+        return False
+    return quantity >= minimum
 
 
 def resolve_stock_status(
@@ -266,6 +279,30 @@ LANDMARKS: dict[str, tuple[str, float, float]] = {
     "kandy": ("Kandy", 7.2906, 80.6337),
     "galle": ("Galle", 6.0329, 80.2170),
 }
+
+
+def landmark_suggestions(limit: int = 12) -> list[dict[str, Any]]:
+    """The built-in landmarks, as suggestions for the app (item 1).
+
+    The feature was reported as missing because nobody knew what to type.
+    Offering the names that are guaranteed to resolve -- these need no
+    internet at all -- is what makes it findable.
+
+    Aliases are collapsed: "diyagama" and "diyagama junction" are the same
+    place, so the shorter, more recognisable name is kept.
+    """
+    best: dict[tuple[float, float], str] = {}
+    for _key, (name, lat, lng) in LANDMARKS.items():
+        point = (lat, lng)
+        current = best.get(point)
+        if current is None or len(name) < len(current):
+            best[point] = name
+    suggestions = [
+        {"name": name, "latitude": lat, "longitude": lng, "source": "builtin"}
+        for (lat, lng), name in best.items()
+    ]
+    suggestions.sort(key=lambda item: item["name"])
+    return suggestions[:limit]
 
 
 def normalize_landmark(text: str) -> str:

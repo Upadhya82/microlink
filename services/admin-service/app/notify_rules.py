@@ -56,13 +56,15 @@ def _row(user_id: str, title: str, body: str, kind: str, link: object) -> dict:
 def notifications_from_event(envelope: dict) -> list[dict]:
     """Return one dict per notification row this envelope should create.
 
-    Handles two event types:
+    Handles three event types:
 
     * `notify.users` -- the generic channel every service publishes through
       event_bus.notify_users(). One row per unique user id.
     * `user.verified` -- user-service verifying an account. The user has to
       sign in again to pick up a token carrying the new verified claim, so
       they get told that rather than silently wondering why nothing changed.
+    * `shop.cancellation_threshold` -- a shop has cancelled too many orders
+      in too few days (item 8). One row per admin, so somebody looks at it.
 
     Any other event (the vast majority) produces no notifications.
     """
@@ -98,6 +100,29 @@ def notifications_from_event(envelope: dict) -> list[dict]:
                 "account",
                 {"route": "login"},
             )
+        ]
+
+    if event == "shop.cancellation_threshold":
+        shop_id = data.get("shop_id")
+        if not isinstance(shop_id, str) or not shop_id:
+            return []
+        count = data.get("count")
+        count = count if isinstance(count, int) and count > 0 else 0
+        days = data.get("window_days")
+        days = days if isinstance(days, int) and days > 0 else 0
+        body = (
+            f"A shop has cancelled {count} orders in the last {days} days. "
+            "Check whether it is still able to fulfil orders."
+        )
+        return [
+            _row(
+                user_id,
+                "A shop is cancelling too many orders",
+                body,
+                "report",
+                {"route": "shop", "id": shop_id},
+            )
+            for user_id in _unique_user_ids(data.get("admin_ids"))
         ]
 
     return []

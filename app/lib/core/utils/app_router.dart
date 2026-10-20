@@ -7,6 +7,7 @@ import '../../features/ads/screens/submit_ad_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
 import '../../features/crowdsourcing/screens/add_new_shop_screen.dart';
+import '../../features/crowdsourcing/screens/confirm_shops_screen.dart';
 import '../../features/crowdsourcing/screens/report_road_issue_screen.dart';
 import '../../features/delivery/screens/delivery_tracking_screen.dart';
 import '../../features/delivery/screens/driver_home_screen.dart';
@@ -73,6 +74,8 @@ class AppRouter {
         return _page(const InterestsScreen(), settings);
       case AppRoutes.addNewShop:
         return _page(const AddNewShopScreen(), settings);
+      case AppRoutes.confirmShops:
+        return _page(const ConfirmShopsScreen(), settings);
       case AppRoutes.reportRoadIssue:
         return _page(const ReportRoadIssueScreen(), settings);
       case AppRoutes.adminDashboard:

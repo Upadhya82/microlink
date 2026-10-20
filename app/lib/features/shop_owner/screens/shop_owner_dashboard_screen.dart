@@ -21,6 +21,7 @@ import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/required_fields_note.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/rating_chip.dart';
 import '../../../core/widgets/skeleton_list.dart';
@@ -170,6 +171,18 @@ class _ShopOwnerDashboardScreenState extends State<ShopOwnerDashboardScreen> {
                 ],
               ),
             ),
+            // Item 6: the owner should not have to wonder why their shop
+            // carries a "Not verified" chip for customers.
+            if (selected.awaitingVerification)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  0,
+                  AppSpacing.lg,
+                  AppSpacing.md,
+                ),
+                child: _AwaitingVerificationBanner(shop: selected),
+              ),
             Expanded(
               child: _ShopWorkspace(
                 key: ValueKey(selected.id),
@@ -511,9 +524,11 @@ class _ShopFormSheetState extends State<_ShopFormSheet> {
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: AppSpacing.lg),
+                  const RequiredFieldsNote(),
                   AppTextField(
                     controller: _nameController,
                     label: 'Shop name',
+                    isRequired: true,
                     validator: (v) =>
                         Validators.required(v, field: 'Shop name'),
                   ),
@@ -521,6 +536,7 @@ class _ShopFormSheetState extends State<_ShopFormSheet> {
                   AppTextField(
                     controller: _descController,
                     label: 'Description',
+                    isRequired: true,
                     maxLines: 3,
                     validator: (v) =>
                         Validators.required(v, field: 'Description'),
@@ -545,6 +561,7 @@ class _ShopFormSheetState extends State<_ShopFormSheet> {
                   AppTextField(
                     controller: _addressController,
                     label: 'Address',
+                    isRequired: true,
                     validator: (v) => Validators.required(v, field: 'Address'),
                   ),
                   const SizedBox(height: AppSpacing.md),
@@ -609,6 +626,7 @@ class _ShopFormSheetState extends State<_ShopFormSheet> {
                   AppButton(
                     label: isEdit ? 'Save Changes' : 'Create Shop',
                     isLoading: _isSubmitting,
+                    requiresConnection: true,
                     onPressed: _isSubmitting ? null : _submit,
                   ),
                   const SizedBox(height: AppSpacing.lg),
@@ -1262,6 +1280,17 @@ class _ProductsTabState extends State<_ProductsTab> {
                                       color: context.appColors.textSecondary,
                                     ),
                               ),
+                              if (product.isHiddenFromCustomers) ...[
+                                const SizedBox(height: AppSpacing.xs),
+                                StatusBadge(
+                                  label:
+                                      'Hidden: under '
+                                      '${AppConstants.minListableStock} in stock',
+                                  background: context.appColors.warning
+                                      .withValues(alpha: 0.14),
+                                  foreground: context.appColors.warning,
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -1347,6 +1376,13 @@ class _ProductFormSheetState extends State<_ProductFormSheet> {
     }
     final parsed = int.tryParse(value.trim());
     if (parsed == null || parsed < 0) return 'Enter a valid stock quantity';
+    // Only on create: an owner editing a product must be able to record what
+    // is really on the shelf, even when that hides it from customers.
+    if (widget.existingProduct == null &&
+        parsed < AppConstants.minListableStock) {
+      return 'A new product needs at least '
+          '${AppConstants.minListableStock} in stock';
+    }
     return null;
   }
 
@@ -1422,9 +1458,11 @@ class _ProductFormSheetState extends State<_ProductFormSheet> {
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: AppSpacing.lg),
+                  const RequiredFieldsNote(),
                   AppTextField(
                     controller: _nameController,
                     label: 'Product name',
+                    isRequired: true,
                     validator: (v) =>
                         Validators.required(v, field: 'Product name'),
                   ),
@@ -1432,6 +1470,7 @@ class _ProductFormSheetState extends State<_ProductFormSheet> {
                   AppTextField(
                     controller: _descController,
                     label: 'Description',
+                    isRequired: true,
                     maxLines: 3,
                     validator: (v) =>
                         Validators.required(v, field: 'Description'),
@@ -1440,6 +1479,7 @@ class _ProductFormSheetState extends State<_ProductFormSheet> {
                   AppTextField(
                     controller: _priceController,
                     label: 'Price',
+                    isRequired: true,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
@@ -1450,13 +1490,18 @@ class _ProductFormSheetState extends State<_ProductFormSheet> {
                   AppTextField(
                     controller: _stockController,
                     label: 'Stock quantity',
+                    isRequired: true,
                     keyboardType: TextInputType.number,
+                    helperText:
+                        'Customers only see products with at least '
+                        '${AppConstants.minListableStock} in stock.',
                     validator: _validateStock,
                   ),
                   const SizedBox(height: AppSpacing.md),
                   AppTextField(
                     controller: _categoryController,
                     label: 'Category',
+                    isRequired: true,
                     validator: (v) => Validators.required(v, field: 'Category'),
                   ),
                   const SizedBox(height: AppSpacing.md),
@@ -1494,6 +1539,7 @@ class _ProductFormSheetState extends State<_ProductFormSheet> {
                   AppButton(
                     label: isEdit ? 'Save Changes' : 'Add Product',
                     isLoading: _isSubmitting,
+                    requiresConnection: true,
                     onPressed: _isSubmitting ? null : _submit,
                   ),
                   const SizedBox(height: AppSpacing.lg),
@@ -2189,8 +2235,10 @@ class _OrdersTabState extends State<_OrdersTab> {
             padding: const EdgeInsets.all(AppSpacing.lg),
             itemCount: sorted.length,
             separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
-            itemBuilder: (context, i) =>
-                StaggerIn(index: i, child: _ShopOrderCard(order: sorted[i])),
+            itemBuilder: (context, i) => StaggerIn(
+              index: i,
+              child: _ShopOrderCard(order: sorted[i], onChanged: _load),
+            ),
           );
         },
       ),
@@ -2200,8 +2248,76 @@ class _OrdersTabState extends State<_OrdersTab> {
 
 class _ShopOrderCard extends StatelessWidget {
   final DeliveryOrder order;
+  final Future<void> Function() onChanged;
 
-  const _ShopOrderCard({required this.order});
+  const _ShopOrderCard({required this.order, required this.onChanged});
+
+  /// Item 8: a shop that cannot fill an order says so, with a reason the
+  /// customer is shown. Allowed while the order is pending or accepted,
+  /// which is what the server allows too.
+  Future<void> _cancel(BuildContext context) async {
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => const _CancelReasonDialog(),
+    );
+    if (reason == null || !context.mounted) return;
+
+    try {
+      await ApiClient.instance.patch(
+        '/delivery/orders/${order.id}/cancel',
+        body: {'reason': reason},
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Order cancelled. The customer has been told.')),
+      );
+      await onChanged();
+    } on ApiException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  /// The owner confirms the handover themselves, instead of the driver
+  /// typing the code -- for when the driver's phone has no signal.
+  Future<void> _confirmPickup(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Handed to the driver?'),
+        content: Text(
+          'Confirm only once the driver has order '
+          '#${order.id.substring(0, 6).toUpperCase()} in their hands. '
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not yet'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Yes, handed over'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      await ApiClient.instance.post('/delivery/orders/${order.id}/confirm-pickup');
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pickup confirmed. The order is on its way.')),
+      );
+      await onChanged();
+    } on ApiException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2278,9 +2394,185 @@ class _ShopOrderCard extends StatelessWidget {
                 ],
               ),
             ),
+            const SizedBox(height: AppSpacing.sm),
+            // The other way to confirm the pickup: it needs this phone to be
+            // online, not the driver's.
+            FilledButton.icon(
+              onPressed: () => _confirmPickup(context),
+              icon: const Icon(Icons.handshake_outlined, size: 18),
+              label: const Text('Handed to driver'),
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Driver has no signal? Tap this once the order is in their hands.',
+              style: textTheme.labelSmall?.copyWith(color: colors.textSecondary),
+            ),
+          ],
+          if (order.status == 'pending' || order.status == 'accepted') ...[
+            const SizedBox(height: AppSpacing.sm),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => _cancel(context),
+                icon: const Icon(Icons.cancel_outlined, size: 18),
+                label: const Text('Cancel with reason'),
+                style: TextButton.styleFrom(foregroundColor: colorScheme.error),
+              ),
+            ),
+          ],
+          if (order.cancellationNote != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              order.cancellationNote!,
+              style: textTheme.bodySmall?.copyWith(color: colorScheme.error),
+            ),
           ],
         ],
       ),
+    );
+  }
+}
+
+
+/// Item 6: "waiting for verification", shown on the owner's own dashboard.
+///
+/// Customers see a "Not verified" chip on an unverified shop, so the owner
+/// is told the same thing from their side, and what it means for them.
+class _AwaitingVerificationBanner extends StatelessWidget {
+  final Shop shop;
+
+  const _AwaitingVerificationBanner({required this.shop});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final ready = shop.hasEnoughProductsToVerify;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: colors.warning.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: colors.warning.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.hourglass_top_rounded, size: 20, color: colors.warning),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Waiting for admin verification',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Customers see a "Not verified" note on your shop until an '
+                  'admin approves it.',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: colors.textSecondary),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                // Item 10: what is actually missing, rather than "wait".
+                Row(
+                  children: [
+                    Icon(
+                      ready ? Icons.check_circle_outline : Icons.inventory_2_outlined,
+                      size: 16,
+                      color: ready ? colors.success : colors.warning,
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                    Expanded(
+                      child: Text(
+                        ready
+                            ? '${shop.productProgressLabel} — ready for review.'
+                            : '${shop.productProgressLabel}. A shop needs '
+                                '${AppConstants.minProductsToVerify} products with at '
+                                'least ${AppConstants.minListableStock} in stock each.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: ready ? colors.success : colors.warning,
+                            ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+/// Asks the owner why, because the customer is shown the answer.
+class _CancelReasonDialog extends StatefulWidget {
+  const _CancelReasonDialog();
+
+  @override
+  State<_CancelReasonDialog> createState() => _CancelReasonDialogState();
+}
+
+class _CancelReasonDialogState extends State<_CancelReasonDialog> {
+  final _controller = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Cancel this order?'),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'The customer and the delivery agent are told, with your reason. '
+              'Cancelling too often is reviewed by an administrator.',
+            ),
+            const SizedBox(height: AppSpacing.md),
+            AppTextField(
+              controller: _controller,
+              label: 'Reason',
+              isRequired: true,
+              maxLines: 2,
+              validator: (value) =>
+                  Validators.required(value, field: 'Reason'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Keep order'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (_formKey.currentState?.validate() != true) return;
+            Navigator.pop(context, _controller.text.trim());
+          },
+          child: const Text('Cancel order'),
+        ),
+      ],
     );
   }
 }

@@ -26,6 +26,9 @@ _STATEMENTS = [
     "ALTER TABLE delivery_agent_profiles ADD COLUMN IF NOT EXISTS application_status VARCHAR(20) NOT NULL DEFAULT 'pending'",
     "ALTER TABLE delivery_agent_profiles ADD COLUMN IF NOT EXISTS review_note VARCHAR(300)",
     f"ALTER TABLE delivery_agent_profiles ADD COLUMN IF NOT EXISTS reviewed_at {_TS}",
+    # item 13: when the driver last shared their position. NULL on older
+    # rows, which the app reads as "never shared".
+    f"ALTER TABLE delivery_agent_profiles ADD COLUMN IF NOT EXISTS location_updated_at {_TS}",
     # orders
     # Handover codes: the shop owner reads one to the agent at pickup, the
     # customer reads the other at the door.
@@ -44,6 +47,16 @@ _STATEMENTS = [
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS rating INTEGER",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS rating_comment VARCHAR(300)",
     f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS rated_at {_TS}",
+    # item 8: who cancelled an order and why. Old cancelled rows stay NULL
+    # (unknown), so they count towards neither cancellation limit.
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_by VARCHAR(20)",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancel_reason VARCHAR(200)",
+    f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_at {_TS}",
+    # item 12: when shop-service took this order's stock, and when it gave it
+    # back. Old rows stay NULL: they never reserved anything, so there is
+    # nothing to return for them.
+    f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_reserved_at {_TS}",
+    f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_released_at {_TS}",
     # order_events
     "ALTER TABLE order_events ADD COLUMN IF NOT EXISTS agent_lat DOUBLE PRECISION",
     "ALTER TABLE order_events ADD COLUMN IF NOT EXISTS agent_lng DOUBLE PRECISION",
