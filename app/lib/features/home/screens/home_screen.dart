@@ -161,6 +161,9 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Real per-user crowdsourcing standing from `/crowdsource/trust-score/me`
   /// -- there's no cross-user "community" aggregate a regular user can see,
   /// so this reflects the signed-in user's own contributions, not neighbors'.
+  /// Item 7: whether this account may confirm crowd-reported shops.
+  bool _canConfirmShops = false;
+
   Future<void> _fetchTrustScore() async {
     try {
       final response = await ApiClient.instance.get('/crowdsource/trust-score/me');
@@ -169,6 +172,11 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _trustScore = (data['score'] as num).toDouble();
         _totalReports = data['total_reports'] as int;
+        // Items 6 and 7: the server decides who may confirm a neighbour's
+        // shop report, so the entry point is only offered when it says yes.
+        // Absent (an older server) stays false rather than offering a
+        // screen whose every answer would come back 403.
+        _canConfirmShops = data['can_confirm_shops'] as bool? ?? false;
         _loadingTrust = false;
       });
     } catch (_) {
@@ -717,6 +725,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.pushNamed(context, AppRoutes.addNewShop);
                 },
               ),
+              if (_canConfirmShops)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.how_to_reg_outlined),
+                  title: const Text('Confirm Shops Near You'),
+                  subtitle: const Text('Say whether reported shops are really there'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    Navigator.pushNamed(context, AppRoutes.confirmShops);
+                  },
+                ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.report_gmailerrorred_outlined),
@@ -883,6 +902,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       Navigator.pushNamed(context, AppRoutes.addNewShop);
                     },
                   ),
+                  if (_canConfirmShops)
+                    _SheetActionTile(
+                      icon: Icons.how_to_reg_outlined,
+                      label: 'Confirm Shops Near You',
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        Navigator.pushNamed(context, AppRoutes.confirmShops);
+                      },
+                    ),
                   _SheetActionTile(
                     icon: Icons.report_gmailerrorred_outlined,
                     label: 'Report an Issue',

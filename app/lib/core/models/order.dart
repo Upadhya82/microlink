@@ -37,6 +37,13 @@ class DeliveryOrder {
   final String? pickupCode;
   final String? deliveryCode;
 
+  /// Item 8: who cancelled this order and why. All null unless the order was
+  /// cancelled, and null on orders cancelled before the server recorded it.
+  /// [cancelledBy] is "customer", "shop", "admin" or "system".
+  final String? cancelledBy;
+  final String? cancelReason;
+  final DateTime? cancelledAt;
+
   const DeliveryOrder({
     required this.id,
     required this.customerId,
@@ -63,7 +70,28 @@ class DeliveryOrder {
     this.tripDistanceKm,
     this.pickupCode,
     this.deliveryCode,
+    this.cancelledBy,
+    this.cancelReason,
+    this.cancelledAt,
   });
+
+  bool get isCancelled => status == 'cancelled';
+
+  /// What to tell the customer about a cancellation, or null when there is
+  /// nothing to say (not cancelled, or nobody recorded who did it).
+  String? get cancellationNote {
+    if (!isCancelled) return null;
+    final who = switch (cancelledBy) {
+      'shop' => 'Cancelled by the shop',
+      'customer' => 'You cancelled this order',
+      'admin' => 'Cancelled by an administrator',
+      'system' => 'Cancelled automatically',
+      _ => null,
+    };
+    if (who == null) return null;
+    final reason = cancelReason?.trim();
+    return (reason == null || reason.isEmpty) ? who : '$who: $reason';
+  }
 
   factory DeliveryOrder.fromJson(Map<String, dynamic> json) {
     return DeliveryOrder(
@@ -98,6 +126,11 @@ class DeliveryOrder {
       tripDistanceKm: (json['trip_distance_km'] as num?)?.toDouble(),
       pickupCode: json['pickup_code'] as String?,
       deliveryCode: json['delivery_code'] as String?,
+      cancelledBy: json['cancelled_by'] as String?,
+      cancelReason: json['cancel_reason'] as String?,
+      cancelledAt: json['cancelled_at'] == null
+          ? null
+          : DateTime.parse(json['cancelled_at'] as String),
     );
   }
 }

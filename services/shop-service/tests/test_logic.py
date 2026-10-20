@@ -240,6 +240,42 @@ class GeoTests(unittest.TestCase):
         self.assertIsNone(geo.bounding_box(0, 179.99, 50))  # crosses the date line
 
 
+class LandmarkSuggestionTests(unittest.TestCase):
+    """Item 1: the names the app offers when the box is empty."""
+
+    def test_there_are_suggestions_to_offer(self):
+        suggestions = logic.landmark_suggestions()
+        self.assertTrue(suggestions)
+
+    def test_every_suggestion_resolves_through_the_normal_lookup(self):
+        # A suggestion that cannot be looked up would be a dead end.
+        for item in logic.landmark_suggestions():
+            self.assertIsNotNone(
+                logic.lookup_landmark(item["name"]), item["name"]
+            )
+
+    def test_aliases_for_the_same_place_are_collapsed(self):
+        names = [item["name"] for item in logic.landmark_suggestions(limit=100)]
+        self.assertEqual(len(names), len(set(names)))
+        points = [
+            (item["latitude"], item["longitude"])
+            for item in logic.landmark_suggestions(limit=100)
+        ]
+        self.assertEqual(len(points), len(set(points)))
+
+    def test_they_are_in_alphabetical_order(self):
+        names = [item["name"] for item in logic.landmark_suggestions(limit=100)]
+        self.assertEqual(names, sorted(names))
+
+    def test_the_limit_is_respected(self):
+        self.assertEqual(len(logic.landmark_suggestions(limit=3)), 3)
+        self.assertEqual(logic.landmark_suggestions(limit=0), [])
+
+    def test_each_one_says_it_came_from_the_built_in_list(self):
+        for item in logic.landmark_suggestions():
+            self.assertEqual(item["source"], "builtin")
+
+
 if __name__ == "__main__":
     unittest.main()
 

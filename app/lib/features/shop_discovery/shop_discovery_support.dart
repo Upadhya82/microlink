@@ -45,6 +45,19 @@ class ShopExtras {
   /// Set when the search text matched one of the shop's product names.
   final String? matchedProduct;
 
+  /// Item 6: whether an admin has verified the shop. Null on a page cached
+  /// before the app read this field, which shows no chip either way rather
+  /// than branding an unknown shop.
+  final bool? isVerified;
+
+  /// Item 4: this shop keeps drivers waiting, or is often late. Worked out
+  /// by delivery-service over the last 30 days and stored by shop-service.
+  final bool delayProne;
+
+  /// How long a driver typically waits for this shop to hand the order over,
+  /// which is what the chip explains on a long press.
+  final double? medianPickupWaitMin;
+
   const ShopExtras({
     required this.status,
     this.statusReason,
@@ -58,7 +71,12 @@ class ShopExtras {
     required this.outOfStockCount,
     required this.availability,
     this.matchedProduct,
+    this.isVerified,
+    this.delayProne = false,
+    this.medianPickupWaitMin,
   });
+
+  bool get showsNotVerifiedChip => isVerified == false;
 
   factory ShopExtras.fromJson(Map<String, dynamic> json) {
     final isOpen = json['is_open'] as bool? ?? false;
@@ -67,6 +85,9 @@ class ShopExtras {
     return ShopExtras(
       status: json['status'] as String? ?? (isOpen ? 'open' : 'closed'),
       statusReason: json['status_reason'] as String?,
+      isVerified: json['is_verified'] as bool?,
+      delayProne: json['delay_prone'] as bool? ?? false,
+      medianPickupWaitMin: (json['median_pickup_wait_min'] as num?)?.toDouble(),
       reopenAt: _parseDate(json['reopen_at']),
       deliveryAvailable: json['delivery_available'] as bool? ?? false,
       photos: photos.isNotEmpty ? photos : (imageUrl != null && imageUrl.isNotEmpty ? [imageUrl] : <String>[]),
@@ -155,13 +176,27 @@ class ReviewEntry {
   final String? ownerReply;
   final DateTime? createdAt;
 
+  /// Item 3: "shop" was typed on this page, "order" came from feedback on a
+  /// delivered order. A page cached before the app read this says "shop",
+  /// which only means no "Verified order" label until it refreshes.
+  final String source;
+
+  /// The delivered order an "order" review came from, when the server sent it.
+  final String? orderId;
+
   const ReviewEntry({
     required this.id,
     required this.rating,
     required this.comment,
     this.ownerReply,
     this.createdAt,
+    this.source = 'shop',
+    this.orderId,
   });
+
+  /// Left by someone who actually received an order from this shop, so the
+  /// app can say so.
+  bool get isFromOrder => source == 'order';
 
   factory ReviewEntry.fromJson(Map<String, dynamic> json) {
     return ReviewEntry(
@@ -170,6 +205,8 @@ class ReviewEntry {
       comment: json['comment'] as String? ?? '',
       ownerReply: json['owner_reply'] as String?,
       createdAt: _parseDate(json['created_at']),
+      source: json['source'] as String? ?? 'shop',
+      orderId: json['order_id'] as String?,
     );
   }
 }
@@ -501,6 +538,61 @@ class ShopStatusBadge extends StatelessWidget {
       default:
         return StatusBadge.closed(context);
     }
+  }
+}
+
+/// "Not verified" (item 6).
+///
+/// Every shop in the local data is unverified and a customer had no way to
+/// tell, so the badge is the whole point: it is shown only when the server
+/// actually said the shop is unverified, never on a shop we know nothing
+/// about.
+class NotVerifiedChip extends StatelessWidget {
+  /// Shortened on a crowded card; the shop page has room for the sentence.
+  final bool compact;
+
+  const NotVerifiedChip({super.key, this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final warning = context.appColors.warning;
+    return Tooltip(
+      message: 'An admin has not checked this shop yet.',
+      child: StatusBadge(
+        label: compact ? 'Not verified' : 'Not verified by an admin',
+        background: warning.withValues(alpha: 0.16),
+        foreground: Color.alphaBlend(Colors.black.withValues(alpha: 0.45), warning),
+      ),
+    );
+  }
+}
+
+/// "Often delayed" (item 4).
+///
+/// A customer choosing between two shops could not tell that one of them
+/// regularly keeps the driver waiting. delivery-service works that out from
+/// its own order timestamps, so this is only ever shown when the server has
+/// actually judged the shop -- never on a guess.
+class OftenDelayedChip extends StatelessWidget {
+  /// The median accept-to-pickup wait, when the server reported one.
+  final double? medianPickupWaitMin;
+
+  const OftenDelayedChip({super.key, this.medianPickupWaitMin});
+
+  @override
+  Widget build(BuildContext context) {
+    final error = Theme.of(context).colorScheme.error;
+    final wait = medianPickupWaitMin;
+    return Tooltip(
+      message: wait == null
+          ? 'Orders from this shop are often late.'
+          : 'Drivers usually wait about ${wait.round()} minutes for this shop.',
+      child: StatusBadge(
+        label: 'Often delayed',
+        background: error.withValues(alpha: 0.12),
+        foreground: error,
+      ),
+    );
   }
 }
 

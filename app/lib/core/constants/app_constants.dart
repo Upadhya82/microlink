@@ -19,9 +19,9 @@ class AppConstants {
     const override = String.fromEnvironment('API_BASE_URL');
     if (override.isNotEmpty) return override;
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      return 'http://10.0.2.2:8080/api';
+      return 'http://10.0.2.2:8081/api';
     }
-    return 'http://localhost:8080/api';
+    return 'http://localhost:8081/api';
   }
 
   static const String authTokenKey = 'microlink_auth_token';
@@ -31,6 +31,15 @@ class AppConstants {
   static const String themeModeKey = 'microlink_theme_mode';
 
   static const Duration requestTimeout = Duration(seconds: 15);
+
+  /// A product needs this many units before customers can see it.
+  /// Mirrors shop-service's `min_listable_stock`: the server is what
+  /// enforces the rule, this is only so the forms can say so first.
+  static const int minListableStock = 5;
+
+  /// A shop needs this many listable products before an admin can verify it.
+  /// Mirrors shop-service's `min_products_to_verify`.
+  static const int minProductsToVerify = 5;
 }
 
 class AppRoutes {
@@ -51,6 +60,7 @@ class AppRoutes {
   static const String myFavorites = '/recommendations/favorites';
   static const String interests = '/recommendations/interests';
   static const String addNewShop = '/crowdsource/add-shop';
+  static const String confirmShops = '/crowdsource/confirm-shops';
   static const String reportRoadIssue = '/crowdsource/report-road-issue';
   static const String adminDashboard = '/admin/dashboard';
   static const String submitAd = '/ads/submit';

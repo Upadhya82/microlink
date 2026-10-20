@@ -74,8 +74,14 @@ class CartController extends ChangeNotifier {
       _shopId != null && _shopId != shopId && _lines.isNotEmpty;
 
   /// Adds one of [product]. Pass [shopName] so the cart can name the shop
-  /// without another lookup.
-  void add(Product product, {required String shopId, required String shopName}) {
+  /// without another lookup. Returns false when the shelf cannot cover it,
+  /// so the screen can say why nothing happened.
+  bool add(Product product, {required String shopId, required String shopName}) {
+    // Nothing on the shelf, or the owner marked it unavailable. The old
+    // check read `stockQuantity > 0 && ...`, which let a product showing 0
+    // units be added in any quantity -- the order then failed at the till.
+    if (!product.isAvailable || product.stockQuantity <= 0) return false;
+
     if (_shopId != shopId) {
       _lines.clear();
       _shopId = shopId;
@@ -84,9 +90,47 @@ class CartController extends ChangeNotifier {
     final existing = _lines[product.id];
     final nextQuantity = (existing?.quantity ?? 0) + 1;
     // Never let the cart promise more than the shop has on the shelf.
-    if (product.stockQuantity > 0 && nextQuantity > product.stockQuantity) return;
+    if (nextQuantity > product.stockQuantity) return false;
     _lines[product.id] = CartLine(product: product, quantity: nextQuantity);
     notifyListeners();
+    return true;
+  }
+
+  /// Brings the cart back in step with the shop's current stock, after the
+  /// server refused the order because something had sold out (409).
+  ///
+  /// [fresh] is the shop's product list as it is now. A line whose product
+  /// has gone, or has nothing left, is dropped; a line asking for more than
+  /// is left is cut back to what is there. Returns the names of the products
+  /// that changed, so checkout can name them.
+  List<String> syncWithStock(Iterable<Product> fresh) {
+    final byId = {for (final product in fresh) product.id: product};
+    final changed = <String>[];
+
+    for (final line in lines) {
+      final current = byId[line.product.id];
+      if (current == null || !current.isAvailable || current.stockQuantity <= 0) {
+        changed.add(line.product.name);
+        _lines.remove(line.product.id);
+        continue;
+      }
+      if (line.quantity > current.stockQuantity) {
+        changed.add(current.name);
+        _lines[line.product.id] =
+            CartLine(product: current, quantity: current.stockQuantity);
+        continue;
+      }
+      // Same quantity, but the price or stock may have moved on.
+      _lines[line.product.id] =
+          CartLine(product: current, quantity: line.quantity);
+    }
+
+    if (_lines.isEmpty) {
+      _shopId = null;
+      _shopName = null;
+    }
+    notifyListeners();
+    return changed;
   }
 
   void remove(String productId) {

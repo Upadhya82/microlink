@@ -6,7 +6,9 @@ import 'package:geolocator/geolocator.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/models/order.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/network/offline_cache.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/multipart_upload.dart';
 import '../../../core/network/session_manager.dart';
 import '../../../core/theme/app_colors_extension.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -14,14 +16,23 @@ import '../../../core/utils/app_router.dart';
 import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
+import '../../../core/utils/validators.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/required_fields_note.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/rating_chip.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../../core/widgets/branded_app_bar.dart';
+import '../../account/document_types.dart';
+import '../../account/widgets/document_tile.dart';
 
 const List<String> _vehicleTypes = ['bike', 'scooter', 'car', 'van'];
+
+/// SRS REQ-AGENT-1: the documents the driver profile needs. They are stored
+/// in user-service, where the admin reviews them, and the profile keeps a
+/// link to each.
+const List<String> _profileDocTypes = ['national_id', 'driving_licence', 'police_clearance'];
 
 enum _ProfileLoadState { loading, needsSetup, error, loaded }
 
@@ -43,9 +54,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   final _vehicleTypeController = ValueNotifier<String>('bike');
   final _licensePlateController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _idDocController = TextEditingController();
-  final _licenseDocController = TextEditingController();
-  final _policeDocController = TextEditingController();
+  // The driver's uploaded documents, by doc_type.
+  Map<String, Map<String, dynamic>> _documents = {};
+  final Set<String> _uploadingDocs = {};
   bool _submittingProfile = false;
 
   bool _availabilityBusy = false;
@@ -64,17 +75,21 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
   @override
   void dispose() {
+    _stopLocationUpdates();
     _licensePlateController.dispose();
     _phoneController.dispose();
-    _idDocController.dispose();
-    _licenseDocController.dispose();
-    _policeDocController.dispose();
     _vehicleTypeController.dispose();
     super.dispose();
   }
 
   Future<void> _bootstrap() async {
     await _loadProfile();
+    // Item 13: already online from a previous session, so keep the position
+    // fresh without waiting for them to toggle anything.
+    if (mounted && (_profile?['is_available'] as bool? ?? false)) {
+      await _updateLocation(quiet: true);
+      _startLocationUpdates();
+    }
   }
 
   Future<void> _loadProfile() async {
@@ -89,6 +104,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       if (!mounted) return;
       if (e.isNotFound) {
         setState(() => _profileLoadState = _ProfileLoadState.needsSetup);
+        unawaited(_loadDocuments());
       } else {
         setState(() {
           _profileError = e.message;
@@ -136,19 +152,84 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     setState(() => _activeOrdersState = const ViewLoading());
     try {
       final response = await ApiClient.instance.get('/delivery/orders/me');
-      final orders = (response as List)
-          .map((e) => DeliveryOrder.fromJson(Map<String, dynamic>.from(e as Map)))
+      final rows = (response as List)
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      final orders = rows
+          .map(DeliveryOrder.fromJson)
           .where((o) => o.status != 'delivered' && o.status != 'cancelled')
           .toList();
       if (!mounted) return;
       setState(() => _activeOrdersState = ViewData(orders));
+      // Item 14: a driver halfway up a lane with no signal still needs the
+      // address, the codes and the route steps of the delivery they are on.
+      final activeRows = rows.where((row) {
+        final status = row['status'];
+        return status != 'delivered' && status != 'cancelled';
+      }).toList();
+      unawaited(
+        OfflineCache.save(OfflineCache.activeDeliveryKey, activeRows),
+      );
     } on ApiException catch (e) {
       if (!mounted) return;
-      setState(() => _activeOrdersState = ViewError(e.message));
+      if (!await _showCachedActiveOrders()) {
+        if (mounted) setState(() => _activeOrdersState = ViewError(e.message));
+      }
     } catch (_) {
       if (!mounted) return;
-      setState(() => _activeOrdersState = const ViewError('Could not load your orders.'));
+      if (!await _showCachedActiveOrders()) {
+        if (mounted) {
+          setState(
+            () => _activeOrdersState =
+                const ViewError('Could not load your orders.'),
+          );
+        }
+      }
     }
+  }
+
+  /// Item 14: the active delivery as this phone last saw it, including its
+  /// route steps. True when there was something to show.
+  Future<bool> _showCachedActiveOrders() async {
+    final cached = await OfflineCache.loadList(OfflineCache.activeDeliveryKey);
+    if (cached == null || cached.rows.isEmpty || !mounted) return false;
+    setState(
+      () => _activeOrdersState =
+          ViewData(cached.rows.map(DeliveryOrder.fromJson).toList()),
+    );
+    return true;
+  }
+
+  /// Why the available-orders list is empty (item 13).
+  ///
+  /// The server filters by distance from the position the driver last
+  /// shared, so an empty list usually means that position is stale or was
+  /// never shared at all -- which is exactly what the message now says.
+  String _emptyOrdersReason() {
+    if (!(_profile?['is_available'] as bool? ?? false)) {
+      return 'You are offline. Go Online to start receiving orders.';
+    }
+
+    final radius = (_profile?['service_radius_km'] as num?)?.toStringAsFixed(0);
+    final within = radius == null ? 'your area' : '$radius km';
+    final shared = _locationSharedAt();
+
+    if (shared == null) {
+      return 'No orders within $within. Share your location so orders near '
+          'you can be matched.';
+    }
+    return 'No orders within $within of where you were ${sharedAgo(shared)}. '
+        'Tap the location button to share where you are now.';
+  }
+
+  /// When the server last heard where this driver is, preferring what this
+  /// session shared over the stored timestamp.
+  DateTime? _locationSharedAt() {
+    if (_lastLocationUpdate != null) return _lastLocationUpdate;
+    final raw = _profile?['location_updated_at'] as String?;
+    if (raw == null) return null;
+    return DateTime.tryParse(raw);
   }
 
   Future<void> _loadAvailableOrders() async {
@@ -169,17 +250,67 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
   }
 
+  /// The documents already sent -- at signup, or from the verification
+  /// screen -- so the form shows them as done instead of asking again.
+  Future<void> _loadDocuments() async {
+    try {
+      final response = await ApiClient.instance.get('/users/me/documents');
+      final byType = <String, Map<String, dynamic>>{};
+      for (final row in (response as List).whereType<Map>()) {
+        final document = Map<String, dynamic>.from(row);
+        byType[document['doc_type'] as String? ?? ''] = document;
+      }
+      if (!mounted) return;
+      setState(() => _documents = byType);
+    } catch (_) {
+      // Not fatal: every document simply shows Upload.
+    }
+  }
+
+  /// Pick an image (JPG, PNG, WebP) or a PDF and store it straight away, so
+  /// the driver sees it ticked off before submitting the form.
+  Future<void> _uploadDocument(DocType type) async {
+    setState(() => _uploadingDocs.add(type.value));
+    try {
+      final picked = await MultipartUpload.pick(
+        allowedExtensions: MultipartUpload.documentExtensions,
+      );
+      if (picked == null) return;
+      final document = await MultipartUpload.send(
+        path: '/users/me/documents',
+        file: picked,
+        fields: {'doc_type': type.value},
+      );
+      if (!mounted) return;
+      setState(() => _documents[type.value] = document);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Could not upload that file.')));
+    } finally {
+      if (mounted) setState(() => _uploadingDocs.remove(type.value));
+    }
+  }
+
+  String? _documentLink(String docType) {
+    final id = _documents[docType]?['id'];
+    return id == null ? null : '/users/documents/$id/file';
+  }
+
   Future<void> _submitProfile() async {
     final plate = _licensePlateController.text.trim();
     final phone = _phoneController.text.trim();
-    final idDoc = _idDocController.text.trim();
-    final licenseDoc = _licenseDocController.text.trim();
-    final policeDoc = _policeDocController.text.trim();
+    final idDoc = _documentLink('national_id');
+    final licenseDoc = _documentLink('driving_licence');
+    final policeDoc = _documentLink('police_clearance');
     // SRS REQ-AGENT-1: phone + ID document + driver's licence photo + police report.
-    if (phone.isEmpty || idDoc.isEmpty || licenseDoc.isEmpty || policeDoc.isEmpty) {
+    if (phone.isEmpty || idDoc == null || licenseDoc == null || policeDoc == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please enter your phone number and all three document links.'),
+          content: Text('Please enter your phone number and upload all three documents.'),
         ),
       );
       return;
@@ -216,10 +347,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     _vehicleTypeController.value = (p['vehicle_type'] as String?) ?? 'bike';
     _licensePlateController.text = (p['license_plate'] as String?) ?? '';
     _phoneController.text = (p['phone'] as String?) ?? '';
-    _idDocController.text = (p['id_document_url'] as String?) ?? '';
-    _licenseDocController.text = (p['license_photo_url'] as String?) ?? '';
-    _policeDocController.text = (p['police_report_url'] as String?) ?? '';
     setState(() => _profileLoadState = _ProfileLoadState.needsSetup);
+    unawaited(_loadDocuments());
   }
 
   Future<void> _toggleAvailability(bool value) async {
@@ -234,6 +363,16 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         body: {'is_available': value},
       );
       if (!mounted) return;
+      // Item 13: the job list is filtered against the last position the
+      // driver shared, and sharing it was a button nobody pressed -- so a
+      // driver in Colombo saw no Colombo orders. Going Online now shares it
+      // straight away, and keeps it fresh while they stay online.
+      if (value) {
+        await _updateLocation(quiet: true);
+        _startLocationUpdates();
+      } else {
+        _stopLocationUpdates();
+      }
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _profile = {...?_profile, 'is_available': previous});
@@ -248,8 +387,34 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
   }
 
-  Future<void> _updateLocation() async {
-    setState(() => _locationBusy = true);
+  /// How often to re-share the position while the driver is online. Often
+  /// enough that the list follows them across town, rare enough not to sit
+  /// on the GPS all shift.
+  static const Duration _locationInterval = Duration(minutes: 3);
+
+  Timer? _locationTimer;
+
+  void _startLocationUpdates() {
+    _locationTimer?.cancel();
+    _locationTimer = Timer.periodic(_locationInterval, (_) {
+      // Stop if they went offline or left the screen in the meantime.
+      if (!mounted || !(_profile?['is_available'] as bool? ?? false)) {
+        _stopLocationUpdates();
+        return;
+      }
+      _updateLocation(quiet: true);
+    });
+  }
+
+  void _stopLocationUpdates() {
+    _locationTimer?.cancel();
+    _locationTimer = null;
+  }
+
+  /// Shares the driver's position. [quiet] for the automatic shares, which
+  /// must not interrupt with a snackbar on every success or failure.
+  Future<void> _updateLocation({bool quiet = false}) async {
+    if (!quiet) setState(() => _locationBusy = true);
     try {
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -271,17 +436,23 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       );
       if (!mounted) return;
       setState(() => _lastLocationUpdate = DateTime.now());
+      // An automatic share refreshes the list rather than announcing itself.
+      if (quiet) {
+        await _loadAvailableOrders();
+        return;
+      }
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Location updated.')));
+      await _loadAvailableOrders();
     } on ApiException catch (e) {
-      if (!mounted) return;
+      if (!mounted || quiet) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || quiet) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Could not get your location.')));
     } finally {
-      if (mounted) setState(() => _locationBusy = false);
+      if (mounted && !quiet) setState(() => _locationBusy = false);
     }
   }
 
@@ -435,6 +606,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             ),
           ),
           const SizedBox(height: AppSpacing.lg),
+          const RequiredFieldsNote(),
           AppTextField(
             controller: _licensePlateController,
             label: 'License plate (optional)',
@@ -443,38 +615,35 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           const SizedBox(height: AppSpacing.lg),
           AppTextField(
             controller: _phoneController,
+            // Item 5: required because this is a driver -- the customer
+            // whose order they are carrying has to be able to reach them.
             label: 'Phone number',
+            isRequired: true,
             hint: 'e.g. 0771234567',
             keyboardType: TextInputType.phone,
             prefixIcon: Icons.phone_outlined,
+            validator: (v) =>
+                Validators.required(v, field: 'Phone number') ?? Validators.phone(v),
           ),
           const SizedBox(height: AppSpacing.lg),
+          Text('Documents', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: AppSpacing.xs),
           Text(
-            'Documents (paste a link to each file)',
-            style: Theme.of(context).textTheme.titleSmall,
+            'A photo (JPG or PNG) or a PDF for each, up to 8MB.',
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: context.appColors.textSecondary),
           ),
           const SizedBox(height: AppSpacing.sm),
-          AppTextField(
-            controller: _idDocController,
-            label: 'National ID document link',
-            hint: 'https://...',
-            keyboardType: TextInputType.url,
-          ),
-          const SizedBox(height: AppSpacing.md),
-          AppTextField(
-            controller: _licenseDocController,
-            label: "Driver's licence photo link",
-            hint: 'https://...',
-            keyboardType: TextInputType.url,
-          ),
-          const SizedBox(height: AppSpacing.md),
-          AppTextField(
-            controller: _policeDocController,
-            label: 'Police clearance report link',
-            hint: 'https://...',
-            keyboardType: TextInputType.url,
-          ),
-          const SizedBox(height: AppSpacing.xl),
+          for (final docType in _profileDocTypes)
+            DocumentTile(
+              type: docTypeFor(docType),
+              document: _documents[docType],
+              uploading: _uploadingDocs.contains(docType),
+              onUpload: _uploadDocument,
+            ),
+          const SizedBox(height: AppSpacing.lg),
           AppButton(
             label: 'Submit application',
             isLoading: _submittingProfile,
@@ -678,7 +847,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             onRetry: _loadAvailableOrders,
             isEmpty: (data) => data.isEmpty,
             emptyTitle: 'No orders nearby',
-            emptyMessage: 'Check back soon, or make sure you are marked available.',
+            // Item 13: say WHY the list is empty. It is filtered against the
+            // last position shared, so a driver who had moved saw nothing
+            // and had no way to tell that was the reason.
+            emptyMessage: _emptyOrdersReason(),
             emptyIcon: Icons.explore_off_outlined,
             loadingSkeleton: const SkeletonList(itemCount: 3, itemHeight: 96),
             builder: (context, orders) => ListView.separated(
@@ -1154,6 +1326,26 @@ String _vehicleLabel(String value) {
     'van' => 'Van',
     _ => value,
   };
+}
+
+/// How long ago the driver's position was shared, in words (item 13).
+///
+/// Top-level and named without an underscore so the empty-list wording can
+/// be unit tested; the sentence it goes into is
+/// "...where you were 2 hours ago".
+String sharedAgo(DateTime moment, {DateTime? now}) {
+  final difference = (now ?? DateTime.now()).difference(moment);
+  if (difference.isNegative || difference.inMinutes < 1) return 'just now';
+  if (difference.inMinutes < 60) {
+    final minutes = difference.inMinutes;
+    return minutes == 1 ? '1 minute ago' : '$minutes minutes ago';
+  }
+  if (difference.inHours < 24) {
+    final hours = difference.inHours;
+    return hours == 1 ? '1 hour ago' : '$hours hours ago';
+  }
+  final days = difference.inDays;
+  return days == 1 ? 'yesterday' : '$days days ago';
 }
 
 String _formatTime(DateTime dt) {

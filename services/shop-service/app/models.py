@@ -89,6 +89,20 @@ class Shop(Base):
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     verified_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Item 10: when the owner was told their verified shop had dropped below
+    # the listable-product threshold. Cleared when it climbs back, so the
+    # next drop warns them again rather than staying silent forever.
+    low_product_warning_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Item 4: delivery-service works this out from its own order timestamps
+    # and publishes `shop.timeliness`; this service only stores what it is
+    # told, so the search path never has to ask another service.
+    delay_prone: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    median_pickup_wait_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    timeliness_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Trust score. Recomputed from `shop_ratings` (last 90 days) - see app/ratings.py.
     rating_avg: Mapped[float] = mapped_column(Float, default=0.0)
@@ -139,10 +153,22 @@ class ShopPhoto(Base):
 
 
 class ShopRating(Base):
-    """A customer's rating of a shop: one row per (shop, user)."""
+    """A customer's rating of a shop: one row per (shop, user, source).
+
+    Item 3: there are two ways a rating arrives. "Rate this shop" on the
+    shop page writes source="shop"; the feedback a customer leaves after a
+    delivered order arrives over the event bus and writes source="order",
+    carrying the order it came from so the app can label it "Verified
+    order". The same person may do both, which is why `source` is part of
+    the unique key rather than one silently overwriting the other.
+    """
 
     __tablename__ = "shop_ratings"
-    __table_args__ = (UniqueConstraint("shop_id", "user_id", name="uq_shop_ratings_shop_user"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "shop_id", "user_id", "source", name="uq_shop_ratings_shop_user_source"
+        ),
+    )
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     shop_id: Mapped[str] = mapped_column(
@@ -151,6 +177,10 @@ class ShopRating(Base):
     user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     rating: Mapped[int] = mapped_column(Integer, nullable=False)
     comment: Mapped[str] = mapped_column(Text, default="")
+    # "shop" = typed on the shop page, "order" = feedback after a delivery.
+    source: Mapped[str] = mapped_column(String(20), default="shop", nullable=False)
+    # Set for source="order": which delivered order the feedback came from.
+    order_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # REQ-SHOP-6: the owner may reply once to each review.
     owner_reply: Mapped[str | None] = mapped_column(Text, nullable=True)
     replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -223,3 +253,41 @@ class ShopAnalyticsEvent(Base):
         Enum(AnalyticsEventType, name="analytics_event_type"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
+class StockReservation(Base):
+    """Stock held for one order line, from checkout until the order ends.
+
+    delivery-service reserves before it saves an order, so two customers can
+    never be sold the same last item, and releases on every cancellation
+    path. One row per (order, product): that is what makes reserving twice
+    (a double tap, a network retry) a no-op rather than a double deduction.
+    `released_at` is set instead of deleting the row, so a second release
+    returns nothing.
+    """
+
+    __tablename__ = "stock_reservations"
+    __table_args__ = (
+        UniqueConstraint("order_id", "product_id", name="uq_stock_reservations_order_product"),
+    )
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    # Orders live in delivery-service's database, so this is deliberately not
+    # a foreign key -- each service owns its own tables.
+    order_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    shop_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("shops.id"), nullable=False, index=True
+    )
+    # Cascades: if the owner deletes the product the held stock goes with it,
+    # rather than the delete failing on a row delivery-service owns.
+    product_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("products.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    released_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

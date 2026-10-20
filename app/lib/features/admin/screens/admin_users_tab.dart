@@ -8,6 +8,7 @@ import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../widgets/admin_document_row.dart';
 
 /// Admin tab for approving shop owner and delivery agent accounts.
 ///
@@ -65,6 +66,12 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
   ViewState<List<_VerifiableUser>> _state = const ViewLoading();
   bool _showPending = true;
   String? _verifyingId;
+
+  // Each user's documents, fetched the first time the admin opens them --
+  // loading every file list up front would make the tab crawl. A null value
+  // means "still loading".
+  final Map<String, List<Map<String, dynamic>>?> _documents = {};
+  final Set<String> _documentsOpen = {};
 
   /// Bumped on every load; a response whose id is no longer current (the admin
   /// switched filter meanwhile) is dropped instead of overwriting the list.
@@ -137,6 +144,66 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
     }
   }
 
+  /// Show or hide a user's documents. The admin is approving an identity, so
+  /// the ID, licence and police report have to be readable right here.
+  Future<void> _toggleDocuments(_VerifiableUser user) async {
+    if (_documentsOpen.remove(user.id)) {
+      setState(() {});
+      return;
+    }
+    setState(() => _documentsOpen.add(user.id));
+    if (_documents[user.id] != null) return;
+    setState(() => _documents[user.id] = null);
+    try {
+      final response = await ApiClient.instance.get('/users/${user.id}/documents');
+      final rows = (response as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      if (!mounted) return;
+      setState(() => _documents[user.id] = rows);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _documents.remove(user.id);
+        _documentsOpen.remove(user.id);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _documents.remove(user.id);
+        _documentsOpen.remove(user.id);
+      });
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Could not load the documents.')));
+    }
+  }
+
+  Widget _buildDocuments(BuildContext context, _VerifiableUser user) {
+    final documents = _documents[user.id];
+    if (documents == null) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+        child: LinearProgressIndicator(),
+      );
+    }
+    if (documents.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+        child: Text(
+          'No documents uploaded yet.',
+          style: Theme.of(context)
+              .textTheme
+              .bodySmall
+              ?.copyWith(color: context.appColors.textSecondary),
+        ),
+      );
+    }
+    return Column(
+      children: [for (final d in documents) AdminDocumentRow(document: d)],
+    );
+  }
+
   String _joined(DateTime time) =>
       '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
 
@@ -187,6 +254,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
                   itemBuilder: (context, index) {
                     final user = items[index];
                     final verifying = _verifyingId == user.id;
+                    final documentsOpen = _documentsOpen.contains(user.id);
                     return AppCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -229,6 +297,20 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
                               style: textTheme.bodySmall?.copyWith(color: appColors.textSecondary),
                             ),
                           ],
+                          const SizedBox(height: AppSpacing.sm),
+                          TextButton.icon(
+                            onPressed: () => _toggleDocuments(user),
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            icon: Icon(
+                              documentsOpen ? Icons.expand_less : Icons.description_outlined,
+                              size: 18,
+                            ),
+                            label: Text(documentsOpen ? 'Hide documents' : 'View documents'),
+                          ),
+                          if (documentsOpen) _buildDocuments(context, user),
                           if (!user.isVerified) ...[
                             const SizedBox(height: AppSpacing.md),
                             SizedBox(

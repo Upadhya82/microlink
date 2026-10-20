@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_admin
 from app.database import get_db
+from app.downloads import content_disposition
 from app.images import ImageRejected, process_document
 from app.models import User, UserDocument, UserRole
 from app.schemas import DOCUMENT_TYPES, UserDocumentResponse
@@ -136,6 +137,11 @@ async def get_document_file(
     """Serve a document's bytes to its owner or to an admin.
 
     Unlike shop photos this is not public -- these are identity documents.
+
+    Item 9: the response names the file and says how to show it, so a PDF
+    opens in a viewer with a sensible title instead of arriving as nameless
+    bytes. `nosniff` because the content is a file a stranger uploaded: the
+    browser must take the media type we recorded, not guess a better one.
     """
     if not _valid_uuid(document_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
@@ -148,7 +154,13 @@ async def get_document_file(
     return Response(
         content=document.data,
         media_type=document.content_type,
-        headers={"Cache-Control": "private, max-age=600"},
+        headers={
+            "Cache-Control": "private, max-age=600",
+            "Content-Disposition": content_disposition(
+                document.file_name, document.content_type
+            ),
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 

@@ -119,6 +119,15 @@ class ShopResponse(BaseModel):
     out_of_stock_count: int = 0
     availability: str = "none"  # none | all_in_stock | limited | all_out
     matched_product: str | None = None  # set when the search text matched a product name
+    # Item 10: how many products this shop has that customers can actually
+    # see (min_listable_stock units or more). The owner dashboard and the
+    # admin review screen show it as "N of 5".
+    listable_product_count: int = 0
+    # Item 4: this shop keeps drivers waiting, or is often late. Computed by
+    # delivery-service; false until it says otherwise, so a shop is never
+    # marked on no evidence.
+    delay_prone: bool = False
+    median_pickup_wait_min: float | None = None
 
 
 class LandmarkInfo(BaseModel):
@@ -250,6 +259,10 @@ class ReviewResponse(BaseModel):
     user_id: str
     rating: int
     comment: str
+    # Item 3: "shop" (typed on the shop page) or "order" (feedback after a
+    # delivery, which the app labels "Verified order").
+    source: str = "shop"
+    order_id: str | None = None
     owner_reply: str | None = None
     replied_at: datetime | None = None
     created_at: datetime
@@ -269,3 +282,28 @@ class ShopAnalyticsResponse(BaseModel):
     rating_count: int = 0
     stock_summary: dict[str, int] = Field(default_factory=dict)
     peak_hours: list[dict] = Field(default_factory=list)
+
+
+# ------------------------------------------------------- stock reservations
+# Internal, called by delivery-service when an order is placed or cancelled.
+# The gateway blocks /shops/*/stock/* so no app can reach these.
+class StockLine(BaseModel):
+    product_id: str
+    quantity: int = Field(ge=1, description="Units to hold; must be positive")
+
+
+class StockReserveRequest(BaseModel):
+    order_id: str = Field(min_length=1, max_length=36)
+    lines: list[StockLine] = Field(min_length=1)
+
+
+class StockReleaseRequest(BaseModel):
+    order_id: str = Field(min_length=1, max_length=36)
+
+
+class StockOperationResponse(BaseModel):
+    order_id: str
+    # False when the call was a repeat: the stock had already been reserved
+    # (or already returned), so nothing moved this time.
+    changed: bool
+    lines: list[StockLine] = Field(default_factory=list)

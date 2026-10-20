@@ -51,6 +51,36 @@ class Settings(BaseSettings):
     # for this many minutes, then shows up again.
     reject_timeout_hide_minutes: int = 5
 
+    # How long an order may wait for a delivery agent before it is cancelled
+    # and its reserved stock (item 12) goes back on the shelf.
+    #
+    # A setting, and no longer five minutes: at five, nearly every order
+    # placed while no agent happened to be online died unaccepted, and the
+    # shop's stock sprang back a few minutes after the customer ordered --
+    # so a second customer saw the full quantity again. An hour is long
+    # enough for a driver to come online, and short enough that an order
+    # nobody ever takes does not hold stock for a whole day.
+    unclaimed_timeout_minutes: int = 60
+
+    # Item 8: how many cancellations by one shop, inside how many days, before
+    # admins are told. The alert fires on exactly the Nth, not on every one
+    # after it.
+    # Item 4: when a shop counts as "often delayed". Thresholds rather than
+    # constants because the right numbers are a product decision, not a
+    # technical one.
+    # How far back to look.
+    timeliness_window_days: int = 30
+    # Fewer orders than this in the window is not a pattern worth marking.
+    min_orders_for_timeliness: int = 5
+    # A median accept-to-pickup wait above this many minutes is slow.
+    slow_pickup_minutes: float = 15.0
+    # ... or this share of orders arriving after the promised time (0.4 = 40%).
+    late_order_ratio: float = 0.4
+
+    shop_cancellation_alert_count: int = 3
+    shop_cancellation_window_days: int = 7
+    user_service_url: str = "http://user-service:8000"
+
     # SRS 6.2 safety: stop customers who cancel again and again.
     max_cancellations_per_day: int = 5
 

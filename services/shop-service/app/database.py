@@ -64,6 +64,30 @@ _COLUMN_MIGRATIONS: list[str] = [
     "ALTER TABLE shops ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE shops ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ",
     "ALTER TABLE shops ADD COLUMN IF NOT EXISTS verified_by VARCHAR(36)",
+    # shops: item 4 -- the "often delayed" marker, computed by
+    # delivery-service and stored here. FALSE until it reports otherwise.
+    "ALTER TABLE shops ADD COLUMN IF NOT EXISTS delay_prone BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE shops ADD COLUMN IF NOT EXISTS median_pickup_wait_min DOUBLE PRECISION",
+    "ALTER TABLE shops ADD COLUMN IF NOT EXISTS timeliness_updated_at TIMESTAMPTZ",
+    # shop_ratings: item 3 -- post-delivery feedback becomes a review, so a
+    # row records where it came from and which order. Existing rows were all
+    # typed on the shop page, which is what the default says.
+    "ALTER TABLE shop_ratings ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'shop'",
+    "ALTER TABLE shop_ratings ADD COLUMN IF NOT EXISTS order_id VARCHAR(36)",
+    # ... and one person may now leave both kinds, so the unique key grows a
+    # column. Guarded so re-running neither adds nor drops anything twice.
+    "ALTER TABLE shop_ratings DROP CONSTRAINT IF EXISTS uq_shop_ratings_shop_user",
+    (
+        "DO $$ BEGIN "
+        "IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+        "WHERE conname = 'uq_shop_ratings_shop_user_source') THEN "
+        "ALTER TABLE shop_ratings ADD CONSTRAINT uq_shop_ratings_shop_user_source "
+        "UNIQUE (shop_id, user_id, source); "
+        "END IF; END $$;"
+    ),
+    # shops: item 10 -- remembers the one "you are below 5 listed products"
+    # warning, so a verified shop's owner is told once, not on every sale.
+    "ALTER TABLE shops ADD COLUMN IF NOT EXISTS low_product_warning_at TIMESTAMPTZ",
     # products: discounts and photos (shop-owner storefront)
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_percent INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS image BYTEA",

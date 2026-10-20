@@ -25,6 +25,7 @@ import '../../location/widgets/map_pin.dart';
 import '../../location/widgets/map_tile_layer.dart';
 import '../voice_guidance.dart';
 import '../../../core/widgets/branded_app_bar.dart';
+import '../../../core/widgets/role_nav_scaffold.dart';
 
 const List<({String label, String value, IconData icon})> _travelModes = [
   (label: 'Driving', value: 'driving', icon: Icons.directions_car),
@@ -104,6 +105,19 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   bool _routeLoading = false;
   String? _routeError;
   List<ll.LatLng> _polylinePoints = const [];
+
+  /// Item 2: the other routes the server offered. Drawn muted under the
+  /// chosen one and selectable -- they used to be fetched by
+  /// navigation-service and thrown away, so a driver could neither see nor
+  /// choose one.
+  List<_RouteOption> _alternatives = const [];
+
+  /// The chosen route, kept so selecting an alternative can put it back in
+  /// the list rather than losing it.
+  _RouteOption? _chosenRoute;
+
+  /// Voice locale of the current answer, reused when swapping routes.
+  String _voiceLocale = 'en-US';
   double? _distanceKm;
   double? _durationMinutes;
 
@@ -118,10 +132,26 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
 
   bool get _isAgent => SessionManager.instance.isDeliveryAgent;
 
+  /// Whether the driver's Map tab was on screen last time we looked.
+  bool _wasShown = true;
+
   @override
   void initState() {
     super.initState();
     _bootstrap();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The driver's Map tab is built once and kept alive, so a job accepted
+    // on the Jobs tab never reached it -- the sheet kept saying "No active
+    // deliveries". Reload every time the tab comes back on screen.
+    final shown = RoleNavVisibility.isActiveIn(context);
+    if (shown && !_wasShown && _isAgent && !_booting) {
+      unawaited(_loadAgentOrders());
+    }
+    _wasShown = shown;
   }
 
   @override
@@ -224,6 +254,19 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     });
     final me = _myLocation;
     if (me != null) _moveCamera(me, 16);
+
+    // Item 15: say the first instruction now. Nothing used to be spoken
+    // until the driver was within 40 m of the first turn, so tapping
+    // Navigation looked like it did nothing.
+    final spoken = await _voice.announceFirstStep();
+    if (!mounted) return;
+    if (spoken != null) setState(() => _currentStep = spoken);
+
+    // And if the device had no voice for the chosen language, say so once.
+    final notice = _voice.takeFallbackNotice();
+    if (notice != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(notice)));
+    }
   }
 
   // ------------------------------------------------------------------ shops
@@ -358,6 +401,11 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
       final steps = (map['steps'] as List? ?? [])
           .map((e) => RouteStep.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList();
+      final alternatives = (map['alternatives'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => _RouteOption.fromJson(Map<String, dynamic>.from(e)))
+          .where((option) => option.points.length > 1)
+          .toList();
       if (!mounted) return;
       setState(() {
         _polylinePoints = points;
@@ -367,11 +415,17 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
         _currentStep = steps.isEmpty ? null : steps.first;
         _routeLoading = false;
         _followMe = false;
+        _voiceLocale = map['voice_locale'] as String? ?? 'en-US';
+        _alternatives = alternatives;
+        _chosenRoute = _RouteOption(
+          points: points,
+          distanceKm: (map['distance_km'] as num?)?.toDouble() ?? 0,
+          durationMinutes: (map['duration_minutes'] as num?)?.toDouble() ?? 0,
+          steps: steps,
+          summary: 'Recommended',
+        );
       });
-      await _voice.setRoute(
-        steps,
-        voiceLocale: map['voice_locale'] as String? ?? 'en-US',
-      );
+      await _voice.setRoute(steps, voiceLocale: _voiceLocale);
       _fitRoute(origin, destination);
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -388,12 +442,42 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     }
   }
 
+  /// Item 2: switch to one of the other routes.
+  ///
+  /// Everything needed is already in hand -- the server sent each
+  /// alternative's geometry, distance, time and steps -- so this is a swap,
+  /// not another request. The voice guidance is reloaded with the new
+  /// steps, which is the part that was missing before: an alternative with
+  /// the old route's instructions would be worse than none.
+  Future<void> _selectRoute(_RouteOption option) async {
+    final previous = _chosenRoute;
+    setState(() {
+      _polylinePoints = option.points;
+      _distanceKm = option.distanceKm;
+      _durationMinutes = option.durationMinutes;
+      _steps = option.steps;
+      _currentStep = option.steps.isEmpty ? null : option.steps.first;
+      _chosenRoute = option;
+      _alternatives = [
+        for (final other in _alternatives)
+          if (other != option) other,
+        ?previous,
+      ];
+    });
+    await _voice.setRoute(option.steps, voiceLocale: _voiceLocale);
+    final origin = _myLocation;
+    final destination = _destination;
+    if (origin != null && destination != null) _fitRoute(origin, destination);
+  }
+
   void _clearRoute() {
     _voice.setRoute(const [], voiceLocale: 'en-US');
     setState(() {
       _destination = null;
       _destinationLabel = null;
       _polylinePoints = const [];
+      _alternatives = const [];
+      _chosenRoute = null;
       _distanceKm = null;
       _durationMinutes = null;
       _steps = const [];
@@ -528,6 +612,16 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
             if (_polylinePoints.isNotEmpty)
               PolylineLayer(
                 polylines: [
+                  // Item 2: the other routes first, so they sit UNDER the
+                  // chosen one. Muted and dashed: visibly an option, never
+                  // mistaken for the route being followed.
+                  for (final option in _alternatives)
+                    Polyline(
+                      points: option.points,
+                      strokeWidth: 5,
+                      color: colorScheme.outline.withValues(alpha: 0.55),
+                      pattern: StrokePattern.dashed(segments: const [9, 7]),
+                    ),
                   // Drawn twice: a thick translucent casing under a solid
                   // line, so the route stays readable over dense map detail.
                   Polyline(
@@ -676,6 +770,8 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                   durationMinutes: _durationMinutes,
                   speedKmh: _speedKmh,
                   loading: _routeLoading,
+                  alternatives: _alternatives,
+                  onSelectRoute: _selectRoute,
                   onModeSelected: _onModeSelected,
                   onStartNavigation: _startNavigation,
                   onClear: _clearRoute,
@@ -1314,6 +1410,48 @@ class _AgentJobsSheet extends StatelessWidget {
   }
 }
 
+/// One route the server offered: the chosen one, or an alternative (item 2).
+///
+/// Carries its own steps, so selecting it swaps the voice guidance as well
+/// as the line on the map -- an alternative with the previous route's
+/// instructions would be worse than offering none.
+class _RouteOption {
+  final List<ll.LatLng> points;
+  final double distanceKm;
+  final double durationMinutes;
+  final List<RouteStep> steps;
+
+  /// The server's one-line reason, e.g. "2.1 km shorter".
+  final String summary;
+
+  const _RouteOption({
+    required this.points,
+    required this.distanceKm,
+    required this.durationMinutes,
+    required this.steps,
+    required this.summary,
+  });
+
+  factory _RouteOption.fromJson(Map<String, dynamic> json) {
+    return _RouteOption(
+      points: (json['polyline'] as List? ?? [])
+          .whereType<Map>()
+          .map((p) => ll.LatLng(
+                (p['lat'] as num).toDouble(),
+                (p['lng'] as num).toDouble(),
+              ))
+          .toList(),
+      distanceKm: (json['distance_km'] as num?)?.toDouble() ?? 0,
+      durationMinutes: (json['duration_minutes'] as num?)?.toDouble() ?? 0,
+      steps: (json['steps'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => RouteStep.fromJson(Map<String, dynamic>.from(e)))
+          .toList(),
+      summary: json['summary'] as String? ?? '',
+    );
+  }
+}
+
 /// Distance, ETA and travel mode for the active route.
 class _RouteSheet extends StatelessWidget {
   final String label;
@@ -1322,6 +1460,10 @@ class _RouteSheet extends StatelessWidget {
   final double? durationMinutes;
   final double? speedKmh;
   final bool loading;
+
+  /// Item 2: the other routes, offered as chips under the summary.
+  final List<_RouteOption> alternatives;
+  final Future<void> Function(_RouteOption option) onSelectRoute;
   final void Function(String mode) onModeSelected;
   final VoidCallback onStartNavigation;
   final VoidCallback onClear;
@@ -1333,6 +1475,8 @@ class _RouteSheet extends StatelessWidget {
     required this.durationMinutes,
     required this.speedKmh,
     required this.loading,
+    required this.alternatives,
+    required this.onSelectRoute,
     required this.onModeSelected,
     required this.onStartNavigation,
     required this.onClear,
@@ -1423,6 +1567,33 @@ class _RouteSheet extends StatelessWidget {
               ),
             ],
           ),
+          // Item 2: the other ways to get there. Tapping one swaps the drawn
+          // route, the figures above and the voice instructions.
+          if (alternatives.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'Other routes',
+              style: textTheme.labelMedium
+                  ?.copyWith(color: colors.textSecondary, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              children: [
+                for (final option in alternatives)
+                  ActionChip(
+                    avatar: const Icon(Icons.alt_route_rounded, size: 16),
+                    label: Text(
+                      '${option.distanceKm.toStringAsFixed(1)} km · '
+                      '${option.durationMinutes.round()} min'
+                      '${option.summary.isEmpty ? '' : ' · ${option.summary}'}',
+                    ),
+                    onPressed: loading ? null : () => onSelectRoute(option),
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           SizedBox(
             height: 36,

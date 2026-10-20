@@ -101,5 +101,54 @@ class IgnoredEventTests(unittest.TestCase):
         )
 
 
+class ShopCancellationThresholdTests(unittest.TestCase):
+    """Item 8: a shop that keeps cancelling gets one alert per admin."""
+
+    def _event(self, **overrides):
+        data = {
+            "shop_id": "shop-1",
+            "owner_id": "owner-1",
+            "count": 3,
+            "window_days": 7,
+            "admin_ids": ["admin-1", "admin-2"],
+        }
+        data.update(overrides)
+        return envelope("shop.cancellation_threshold", data, source="delivery-service")
+
+    def test_one_row_per_admin(self):
+        rows = notifications_from_event(self._event())
+        self.assertEqual([row["user_id"] for row in rows], ["admin-1", "admin-2"])
+
+    def test_the_body_names_the_count_and_the_window(self):
+        rows = notifications_from_event(self._event())
+        self.assertIn("3 orders", rows[0]["body"])
+        self.assertIn("7 days", rows[0]["body"])
+
+    def test_the_link_points_at_the_shop(self):
+        rows = notifications_from_event(self._event())
+        self.assertEqual(json.loads(rows[0]["link"]), {"route": "shop", "id": "shop-1"})
+        self.assertEqual(rows[0]["kind"], "report")
+
+    def test_no_admins_means_no_rows(self):
+        self.assertEqual(notifications_from_event(self._event(admin_ids=[])), [])
+
+    def test_a_duplicate_admin_id_produces_one_row(self):
+        rows = notifications_from_event(self._event(admin_ids=["admin-1", "admin-1"]))
+        self.assertEqual(len(rows), 1)
+
+    def test_an_event_without_a_shop_is_ignored(self):
+        self.assertEqual(notifications_from_event(self._event(shop_id=None)), [])
+
+    def test_rubbish_numbers_do_not_break_the_insert(self):
+        rows = notifications_from_event(self._event(count="three", window_days=None))
+        self.assertEqual(len(rows), 2)
+        self.assertIn("0 orders", rows[0]["body"])
+
+    def test_other_events_still_produce_nothing(self):
+        self.assertEqual(
+            notifications_from_event(envelope("order.cancelled", {"order_id": "o1"})), []
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

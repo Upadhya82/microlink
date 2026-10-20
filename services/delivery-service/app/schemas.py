@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from typing import Literal
 
@@ -15,15 +16,25 @@ from app.geo import haversine_km
 from app.models import VehicleType
 
 
+# A file the driver uploaded to user-service, where the admin reviews it.
+# Matched exactly, so the field cannot carry an arbitrary relative path.
+_UPLOADED_DOCUMENT_PATH = re.compile(r"^/users/documents/[0-9a-fA-F-]{36}/file$")
+
+
 def _check_link(value: str | None) -> str | None:
-    """Documents are stored as links (there is no file-upload service yet)."""
+    """A document is either an upload in user-service, referenced by its
+    path, or an outside http(s) link."""
     if value is None:
         return None
     value = value.strip()
     if value == "":
         return None
+    if _UPLOADED_DOCUMENT_PATH.match(value):
+        return value
     if not value.lower().startswith(("http://", "https://")):
-        raise ValueError("must be a link that starts with http:// or https://")
+        raise ValueError(
+            "must be an uploaded document or a link that starts with http:// or https://"
+        )
     return value
 
 
@@ -76,6 +87,11 @@ class AgentProfileResponse(BaseModel):
     reviewed_at: datetime | None = None
     current_lat: float | None
     current_lng: float | None
+    # Item 13: how old the shared position is, and the radius it is matched
+    # against, so the app can say "within 15 km of where you were 2 h ago"
+    # instead of showing an unexplained empty list.
+    location_updated_at: datetime | None = None
+    service_radius_km: float | None = None
     is_available: bool
     rating_avg: float
     rating_count: int
@@ -159,6 +175,13 @@ class OrderStatusUpdateRequest(BaseModel):
         return self
 
 
+class OrderCancelRequest(BaseModel):
+    """Item 8: the optional body on cancel. Required from a shop or an admin,
+    because the customer is told the reason."""
+
+    reason: str | None = Field(default=None, max_length=200)
+
+
 class OrderRejectRequest(BaseModel):
     # "declined" = the agent tapped Reject. "timeout" = the 30 s timer ran out.
     reason: Literal["declined", "timeout"] = "declined"
@@ -216,6 +239,12 @@ class OrderResponse(BaseModel):
     agent_notified_at: datetime | None = None
     rating: int | None = None
     rating_comment: str | None = None
+    # Item 8: who cancelled and why, so the customer's order can say
+    # "Cancelled by the shop: ...". NULL on orders cancelled before this
+    # shipped, and on orders that were never cancelled.
+    cancelled_by: str | None = None
+    cancel_reason: str | None = None
+    cancelled_at: datetime | None = None
     # Only ever populated for the person who is supposed to read it out.
     pickup_code: str | None = None
     delivery_code: str | None = None

@@ -18,6 +18,7 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/rating_chip.dart';
 import '../../orders/cart_controller.dart';
+import '../../../core/widgets/status_badge.dart';
 import '../shop_discovery_support.dart';
 import '../../../core/widgets/branded_app_bar.dart';
 
@@ -450,6 +451,11 @@ class _ShopDetailBody extends StatelessWidget {
                         'No ratings yet',
                         style: textTheme.bodySmall?.copyWith(color: colors.textSecondary),
                       ),
+                    if (extras.showsNotVerifiedChip) const NotVerifiedChip(),
+                    if (extras.delayProne)
+                      OftenDelayedChip(
+                        medianPickupWaitMin: extras.medianPickupWaitMin,
+                      ),
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -575,11 +581,29 @@ class _ShopDetailBody extends StatelessWidget {
                     style: textTheme.bodySmall?.copyWith(color: colors.textSecondary),
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  for (final review in data.reviews.take(8))
+                  for (final review in data.reviews.take(_reviewsShownAtFirst))
                     _ReviewTile(
                       review: review,
                       canReply: !offline && isOwner && (review.ownerReply == null),
                       onReply: () => onReply(review),
+                    ),
+                  // Item 3: the page used to stop at eight with no way to
+                  // see the rest, which looked like the shop had only eight.
+                  if (data.reviews.length > _reviewsShownAtFirst)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        onPressed: () => _showAllReviews(
+                          context,
+                          reviews: data.reviews,
+                          isOwner: isOwner,
+                          offline: offline,
+                          onReply: onReply,
+                        ),
+                        child: Text(
+                          'See all ${data.reviews.length} reviews',
+                        ),
+                      ),
                     ),
                 ],
                 if (isOwner) ...[
@@ -1046,6 +1070,53 @@ class _ProductRow extends StatelessWidget {
 // Reviews
 // ==========================================================================
 
+/// How many reviews the shop page shows before offering the rest (item 3).
+const int _reviewsShownAtFirst = 8;
+
+/// Every review, in a sheet. Reusing [_ReviewTile] keeps the "Verified
+/// order" label and the owner's reply button working here too.
+void _showAllReviews(
+  BuildContext context, {
+  required List<ReviewEntry> reviews,
+  required bool isOwner,
+  required bool offline,
+  required void Function(ReviewEntry) onReply,
+}) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (sheetContext) => SafeArea(
+      child: DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.8,
+        builder: (_, controller) => ListView(
+          controller: controller,
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          children: [
+            Text(
+              '${reviews.length} reviews',
+              style: Theme.of(sheetContext)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            for (final review in reviews)
+              _ReviewTile(
+                review: review,
+                canReply: !offline && isOwner && (review.ownerReply == null),
+                onReply: () {
+                  Navigator.pop(sheetContext);
+                  onReply(review);
+                },
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class _ReviewTile extends StatelessWidget {
   final ReviewEntry review;
   final bool canReply;
@@ -1078,6 +1149,16 @@ class _ReviewTile extends StatelessWidget {
                     size: 16,
                     color: colorScheme.secondary,
                   ),
+                // Item 3: this one came from a delivered order, so it is
+                // worth more to a customer than an anonymous rating.
+                if (review.isFromOrder) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  StatusBadge(
+                    label: 'Verified order',
+                    background: colors.success.withValues(alpha: 0.16),
+                    foreground: colors.success,
+                  ),
+                ],
                 const Spacer(),
                 if (review.createdAt != null)
                   Text(
@@ -1286,7 +1367,19 @@ class _AddToCartControl extends StatelessWidget {
       );
       if (replace != true) return;
     }
-    cart.add(product, shopId: shop.id, shopName: shop.name);
+    final added = cart.add(product, shopId: shop.id, shopName: shop.name);
+    if (added || !context.mounted) return;
+    // Refused: either the shelf is empty or the cart already holds all of
+    // it. Silence here reads as a broken button.
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          product.stockQuantity <= 0 || !product.isAvailable
+              ? '${product.name} is out of stock.'
+              : 'Only ${product.stockQuantity} of ${product.name} left.',
+        ),
+      ),
+    );
   }
 
   @override

@@ -3,6 +3,24 @@ import 'package:flutter/material.dart';
 import '../theme/app_motion.dart';
 import 'stretch_header.dart';
 
+/// Whether the destination below is the one on screen.
+///
+/// Destinations are built once and kept alive, so one whose data goes stale
+/// while hidden -- the driver's map, after a job is accepted on the Jobs tab
+/// -- reads this in `didChangeDependencies` to reload when it is shown again.
+class RoleNavVisibility extends InheritedWidget {
+  final bool isActive;
+
+  const RoleNavVisibility({super.key, required this.isActive, required super.child});
+
+  /// True outside a [RoleNavScaffold], e.g. a screen pushed as its own route.
+  static bool isActiveIn(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<RoleNavVisibility>()?.isActive ?? true;
+
+  @override
+  bool updateShouldNotify(RoleNavVisibility oldWidget) => oldWidget.isActive != isActive;
+}
+
 /// One destination in a [RoleNavScaffold]'s bottom bar.
 class RoleNavItem {
   /// Shown in the bar under the icon. Keep it to one short word -- the bar
@@ -197,7 +215,10 @@ class _RoleNavScaffoldState extends State<RoleNavScaffold>
                 // Not yet visited: an empty box holds the slot so the indices
                 // still line up, and costs nothing until it is opened.
                 _visited.contains(i)
-                    ? _destination(_all[i], i)
+                    ? RoleNavVisibility(
+                        isActive: i == _index,
+                        child: _destination(_all[i], i),
+                      )
                     : const SizedBox.shrink(),
             ],
           ),

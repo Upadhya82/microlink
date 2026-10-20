@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/models/app_notification.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/network/offline_cache.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors_extension.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -39,19 +41,42 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     setState(() => _state = const ViewLoading());
     try {
       final response = await ApiClient.instance.get('/notifications/me', query: {'limit': 100});
-      final items = (response as List)
-          .map((e) => AppNotification.fromJson(Map<String, dynamic>.from(e as Map)))
+      final rows = (response as List)
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
           .toList();
+      final items = rows.map(AppNotification.fromJson).toList();
       if (!mounted) return;
       setState(() => _state = ViewData(items));
       UnreadCountController.instance.setUnread(items.where((n) => !n.isRead).length);
+      // Item 14: readable again next time there is no signal.
+      unawaited(OfflineCache.save(OfflineCache.notificationsKey, rows));
     } on ApiException catch (e) {
       if (!mounted) return;
-      setState(() => _state = ViewError(e.message));
+      if (!await _showCached()) {
+        if (mounted) setState(() => _state = ViewError(e.message));
+      }
     } catch (_) {
       if (!mounted) return;
-      setState(() => _state = const ViewError('Could not load your notifications.'));
+      if (!await _showCached()) {
+        if (mounted) {
+          setState(
+            () => _state = const ViewError('Could not load your notifications.'),
+          );
+        }
+      }
     }
+  }
+
+  /// Item 14: the last notifications this phone saw. True when there was
+  /// something to show.
+  Future<bool> _showCached() async {
+    final cached = await OfflineCache.loadList(OfflineCache.notificationsKey);
+    if (cached == null || cached.rows.isEmpty || !mounted) return false;
+    setState(
+      () => _state = ViewData(cached.rows.map(AppNotification.fromJson).toList()),
+    );
+    return true;
   }
 
   /// Marks one row read locally and on the server. The local update happens

@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/models/order.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/network/offline_cache.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/session_manager.dart';
 import '../../../core/theme/app_colors_extension.dart';
@@ -37,21 +40,50 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
     _load();
   }
 
+  /// When the shown orders were saved, if they came from the cache.
+  DateTime? _cachedAt;
+
   Future<void> _load() async {
     setState(() => _state = const ViewLoading());
     try {
       final response = await ApiClient.instance.get('/delivery/orders/me');
-      final orders =
-          (response as List).map((e) => DeliveryOrder.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+      final rows = (response as List)
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      final orders = rows.map(DeliveryOrder.fromJson).toList();
       if (!mounted) return;
-      setState(() => _state = ViewData(orders));
+      setState(() {
+        _state = ViewData(orders);
+        _cachedAt = null;
+      });
+      // Item 14: keep them for the next time there is no signal.
+      unawaited(OfflineCache.save(OfflineCache.myOrdersKey, rows));
     } on ApiException catch (e) {
       if (!mounted) return;
-      setState(() => _state = ViewError(e.message));
+      if (!await _showCached()) {
+        if (mounted) setState(() => _state = ViewError(e.message));
+      }
     } catch (_) {
       if (!mounted) return;
-      setState(() => _state = const ViewError('Could not load your orders.'));
+      if (!await _showCached()) {
+        if (mounted) {
+          setState(() => _state = const ViewError('Could not load your orders.'));
+        }
+      }
     }
+  }
+
+  /// Item 14: fall back to the last orders this phone saw. True when there
+  /// was something to show, so the caller leaves the error alone.
+  Future<bool> _showCached() async {
+    final cached = await OfflineCache.loadList(OfflineCache.myOrdersKey);
+    if (cached == null || cached.rows.isEmpty || !mounted) return false;
+    setState(() {
+      _state = ViewData(cached.rows.map(DeliveryOrder.fromJson).toList());
+      _cachedAt = cached.savedAt;
+    });
+    return true;
   }
 
   Future<void> _openRequestDelivery() async {
@@ -94,9 +126,20 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
           loadingSkeleton: const SkeletonList(),
           builder: (context, orders) => ListView.separated(
             padding: const EdgeInsets.all(AppSpacing.lg),
-            itemCount: orders.length,
+            // One extra row for the "saved information from ..." line, so
+            // nobody mistakes a cached list for a live one (item 14).
+            itemCount: orders.length + (_cachedAt == null ? 0 : 1),
             separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
-            itemBuilder: (context, index) {
+            itemBuilder: (context, position) {
+              if (_cachedAt != null && position == 0) {
+                return Text(
+                  '${tr('offline.saved_at')} ${_formatDate(_cachedAt!)}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.appColors.textSecondary,
+                      ),
+                );
+              }
+              final index = _cachedAt == null ? position : position - 1;
               final order = orders[index];
               final (bg, fg) = _statusColors(context, order.status);
               return AppCard(
@@ -130,6 +173,17 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
                                 : 'Fee to be agreed with the agent',
                             style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
                           ),
+                          // Item 8: a cancelled order used to say only
+                          // "Cancelled", leaving the customer to guess.
+                          if (order.cancellationNote != null) ...[
+                            const SizedBox(height: AppSpacing.xs),
+                            Text(
+                              order.cancellationNote!,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

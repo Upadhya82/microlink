@@ -704,6 +704,19 @@ class _ShopListScreenState extends State<ShopListScreen> {
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
+                // Item 1: landmark search already worked, but the chip sat
+                // under the search box among the category chips and the
+                // reporter never found it. It belongs next to the box it
+                // modifies.
+                IconButton.filledTonal(
+                  onPressed: _askLandmark,
+                  icon: Icon(
+                    _landmarkQuery == null ? Icons.place_outlined : Icons.place,
+                  ),
+                  tooltip: tr('shops.near_landmark'),
+                  isSelected: _landmarkQuery != null,
+                ),
+                const SizedBox(width: AppSpacing.sm),
                 IconButton.filled(
                   onPressed: _showFilterSheet,
                   icon: const Icon(Icons.tune),
@@ -717,6 +730,9 @@ class _ShopListScreenState extends State<ShopListScreen> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: _landmarkQuery == null
+                  // Still labelled as well as placed in the row: an icon on
+                  // its own would trade one discoverability problem for
+                  // another.
                   ? ActionChip(
                       avatar: const Icon(Icons.place_outlined, size: 18),
                       label: Text(tr('shops.near_landmark')),
@@ -892,6 +908,51 @@ class _LandmarkDialog extends StatefulWidget {
 class _LandmarkDialogState extends State<_LandmarkDialog> {
   final _controller = TextEditingController();
 
+  /// Item 1: landmarks to offer, from shop-service's built-in table. An
+  /// empty box gives no clue what it accepts, which is half the reason the
+  /// feature went unused.
+  List<String> _suggestions = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSuggestions();
+  }
+
+  Future<void> _loadSuggestions() async {
+    try {
+      final response =
+          await ApiClient.instance.get('/shops/landmark/suggestions');
+      final names = (response as List)
+          .whereType<Map>()
+          .map((item) => item['name'] as String? ?? '')
+          .where((name) => name.isNotEmpty)
+          .toList();
+      if (!mounted || names.isEmpty) return;
+      setState(() => _suggestions = names);
+    } catch (_) {
+      // Offline, or an older server: these are the names shop-service
+      // resolves without the online geocoder, so they are safe to offer
+      // from here as well.
+      if (!mounted) return;
+      setState(() => _suggestions = _fallbackLandmarks);
+    }
+  }
+
+  /// Mirrors the shortest name per place in shop-service's LANDMARKS table,
+  /// for when the suggestions endpoint cannot be reached.
+  static const List<String> _fallbackLandmarks = [
+    'Colombo Fort',
+    'Pettah, Colombo',
+    'Nugegoda',
+    'Maharagama',
+    'Kottawa',
+    'Homagama',
+    'Negombo',
+    'Kandy',
+    'Galle',
+  ];
+
   @override
   void dispose() {
     _controller.dispose();
@@ -902,12 +963,39 @@ class _LandmarkDialogState extends State<_LandmarkDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(tr('shops.near_landmark')),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        textInputAction: TextInputAction.search,
-        decoration: const InputDecoration(hintText: 'e.g. Central Bus Stand'),
-        onSubmitted: (value) => Navigator.pop(context, value.trim()),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            textInputAction: TextInputAction.search,
+            decoration: const InputDecoration(hintText: 'e.g. Central Bus Stand'),
+            onSubmitted: (value) => Navigator.pop(context, value.trim()),
+          ),
+          if (_suggestions.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'Or pick one',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: context.appColors.textSecondary,
+                  ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              children: [
+                for (final name in _suggestions)
+                  ActionChip(
+                    label: Text(name),
+                    onPressed: () => Navigator.pop(context, name),
+                  ),
+              ],
+            ),
+          ],
+        ],
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
@@ -1303,6 +1391,12 @@ class _ShopTile extends StatelessWidget {
                             Text(
                               'No ratings yet',
                               style: textTheme.bodySmall?.copyWith(color: colors.textSecondary),
+                            ),
+                          if (extras.showsNotVerifiedChip)
+                            const NotVerifiedChip(compact: true),
+                          if (extras.delayProne)
+                            OftenDelayedChip(
+                              medianPickupWaitMin: extras.medianPickupWaitMin,
                             ),
                           if (distance != null)
                             Text(

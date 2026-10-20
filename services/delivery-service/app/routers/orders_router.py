@@ -10,6 +10,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import stock
 from app.auth import CurrentUser, get_current_user, require_roles
 from app.config import settings
 from app.database import get_db
@@ -25,6 +26,7 @@ from app.models import (
 from app.schemas import (
     NotifyCustomerRequest,
     NotifyCustomerResponse,
+    OrderCancelRequest,
     OrderCreateRequest,
     OrderDetailResponse,
     OrderEventResponse,
@@ -37,6 +39,13 @@ from app.schemas import (
 from app.scoring import estimate_minutes, is_within_geofence, promised_minutes
 
 router = APIRouter(prefix="/delivery/orders", tags=["delivery-orders"])
+
+# Item 8: who ended an order. Only CANCELLED_BY_CUSTOMER counts towards the
+# customer's daily limit; only CANCELLED_BY_SHOP counts towards a shop's
+# cancellation streak.
+CANCELLED_BY_CUSTOMER = "customer"
+CANCELLED_BY_SHOP = "shop"
+CANCELLED_BY_ADMIN = "admin"
 
 require_customer = require_roles("user")
 require_delivery_agent = require_roles("delivery_agent")
@@ -134,6 +143,37 @@ async def _shop_owner_id(shop_id: str) -> str | None:
         return None
 
 
+async def resolve_pickup(
+    shop_id: str,
+    lat: float | None,
+    lng: float | None,
+    address: str | None,
+) -> tuple[float | None, float | None, str | None]:
+    """Where the agent collects the order.
+
+    Checkout only says where the order is going, so a cart order arrived with
+    no pickup point at all: no shop pin on the tracking map and nothing for
+    the agent to navigate to. A point the caller did send (Request Delivery
+    lets the customer move it) is kept; otherwise it is the shop's own. Any
+    failure leaves the order as the caller sent it -- a missing pin is far
+    better than a refused order.
+    """
+    if lat is not None and lng is not None:
+        return lat, lng, address
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            response = await client.get(f"{settings.shop_service_url}/shops/{shop_id}")
+            if response.status_code != 200:
+                return lat, lng, address
+            shop = response.json()
+    except Exception:
+        return lat, lng, address
+    shop_lat, shop_lng = shop.get("latitude"), shop.get("longitude")
+    if not isinstance(shop_lat, (int, float)) or not isinstance(shop_lng, (int, float)):
+        return lat, lng, address
+    return float(shop_lat), float(shop_lng), address or shop.get("address") or None
+
+
 async def _owns_shop(shop_id: str, user_id: str) -> bool:
     """Ask shop-service whether this user owns that shop.
 
@@ -197,13 +237,18 @@ async def create_order(
     db: Session = Depends(get_db),
 ):
     """SRS REQ-DELIV-1/2/4: a customer requests delivery assistance."""
-    # SRS 6.2: block people who keep cancelling.
+    # SRS 6.2: block people who keep cancelling. Item 8: only the
+    # customer's OWN cancellations count -- a shop cancelling its orders, or
+    # the unclaimed-order sweep, is not the customer's doing and must not
+    # lock them out. Orders cancelled before cancelled_by existed are NULL,
+    # so they no longer count either.
     since = _now() - timedelta(hours=24)
     recent_cancellations = (
         db.query(func.count(Order.id))
         .filter(
             Order.customer_id == current_user.id,
             Order.status == OrderStatus.cancelled,
+            Order.cancelled_by == CANCELLED_BY_CUSTOMER,
             Order.updated_at >= since,
         )
         .scalar()
@@ -214,15 +259,43 @@ async def create_order(
             detail="You have cancelled too many requests today. Please try again tomorrow.",
         )
 
+    # Item 12: hold the stock BEFORE the order is saved. A shop that cannot
+    # fill the order means no order at all, so there is nothing to undo.
+    try:
+        lines = stock.order_lines(payload.items)
+    except stock.InvalidLine as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
+
+    order_id = str(uuid.uuid4())
+    reserved_at = None
+    if lines:
+        try:
+            await stock.reserve(payload.shop_id, order_id, lines)
+        except stock.StockShort as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail)
+        except stock.StockServiceUnavailable:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="We could not check the shop's stock just now. Please try again.",
+            )
+        reserved_at = _now()
+
+    pickup_lat, pickup_lng, pickup_address = await resolve_pickup(
+        payload.shop_id, payload.pickup_lat, payload.pickup_lng, payload.pickup_address
+    )
     _pickup_code, _delivery_code = _new_code_pair()
     order = Order(
+        id=order_id,
+        stock_reserved_at=reserved_at,
         customer_id=current_user.id,
         shop_id=payload.shop_id,
         agent_id=None,
         items=json.dumps(payload.items),
-        pickup_address=payload.pickup_address,
-        pickup_lat=payload.pickup_lat,
-        pickup_lng=payload.pickup_lng,
+        pickup_address=pickup_address,
+        pickup_lat=pickup_lat,
+        pickup_lng=pickup_lng,
         delivery_address=payload.delivery_address,
         delivery_lat=payload.delivery_lat,
         delivery_lng=payload.delivery_lng,
@@ -232,10 +305,18 @@ async def create_order(
         pickup_code=_pickup_code,
         delivery_code=_delivery_code,
     )
-    db.add(order)
-    db.flush()
-    _write_event(db, order.id, OrderStatus.pending.value)
-    db.commit()
+    try:
+        db.add(order)
+        db.flush()
+        _write_event(db, order.id, OrderStatus.pending.value)
+        db.commit()
+    except Exception:
+        # The stock is held for an order that does not exist. Hand it back
+        # before answering, or those units are lost until the shop notices.
+        db.rollback()
+        if reserved_at is not None:
+            await stock.release(payload.shop_id, order_id)
+        raise
     db.refresh(order)
 
     await publish_event(
@@ -590,6 +671,57 @@ async def update_order_status(
                 ),
             )
 
+    await _complete_handover(
+        db,
+        order,
+        new_status,
+        confirmed_by=CONFIRMED_BY_AGENT,
+        agent_lat=agent_lat,
+        agent_lng=agent_lng,
+    )
+    return OrderResponse.from_model(
+        order,
+        viewer_id=current_user.id,
+        viewer_role=current_user.role,
+    )
+
+
+# Who confirmed a handover, carried on the status event for the activity log.
+CONFIRMED_BY_AGENT = "agent"
+CONFIRMED_BY_SHOP = "shop_owner"
+CONFIRMED_BY_CUSTOMER = "customer"
+
+_HANDOVER_RACE = "This order was just updated. Refresh to see where it is now."
+
+
+async def _complete_handover(
+    db: Session,
+    order: Order,
+    new_status: OrderStatus,
+    *,
+    confirmed_by: str,
+    agent_lat: float | None = None,
+    agent_lng: float | None = None,
+) -> None:
+    """Record a pickup or a delivery, whoever confirmed it.
+
+    The agent proves a handover with the other side's code, at the right
+    place. The shop owner and the customer confirm it from their own
+    accounts instead -- which still works when the agent's phone has no
+    signal, the moment that used to leave an order stuck.
+    """
+    # The caller checked the status; claim the change only if it still holds,
+    # so the agent and the customer confirming at the same moment cannot both
+    # count the delivery.
+    claimed = db.execute(
+        update(Order)
+        .where(Order.id == order.id, Order.status == order.status)
+        .values(status=new_status)
+    ).rowcount
+    if claimed != 1:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_HANDOVER_RACE)
+
     now = _now()
     order.status = new_status
     if new_status == OrderStatus.picked_up:
@@ -598,15 +730,16 @@ async def update_order_status(
         order.delivered_at = now
     _write_event(db, order.id, new_status.value, agent_lat, agent_lng)
 
-    # Confirming the pickup code means the agent is holding the parcel at the
-    # shop, so the trip has started. Recording in_transit here saves a button
-    # that only ever said what had already happened.
+    # A confirmed pickup means the parcel has left the counter, so the trip
+    # has started. Recording in_transit here saves a button that only ever
+    # said what had already happened.
     auto_transit = False
     if new_status == OrderStatus.picked_up:
         order.status = OrderStatus.in_transit
         _write_event(db, order.id, OrderStatus.in_transit.value, agent_lat, agent_lng)
         auto_transit = True
 
+    profile = _get_agent_profile(db, order.agent_id) if order.agent_id else None
     if new_status == OrderStatus.delivered and profile is not None:
         profile.total_deliveries += 1
         # Old rows without a promise time count as on time.
@@ -617,15 +750,20 @@ async def update_order_status(
     db.refresh(order)
 
     await publish_event(
-        "order.status_changed", {"order_id": order.id, "status": order.status.value}
+        "order.status_changed",
+        {"order_id": order.id, "status": new_status.value, "confirmed_by": confirmed_by},
     )
     if auto_transit:
         await publish_event(
             "order.status_changed",
-            {"order_id": order.id, "status": OrderStatus.in_transit.value},
+            {
+                "order_id": order.id,
+                "status": OrderStatus.in_transit.value,
+                "confirmed_by": confirmed_by,
+            },
         )
     if new_status == OrderStatus.delivered:
-        await publish_event("order.delivered", {"order_id": order.id})
+        await publish_event("order.delivered", {"order_id": order.id, "confirmed_by": confirmed_by})
         # The shop owner handed the parcel over at the counter and hears
         # nothing more about it otherwise; this closes the loop for them.
         owner_id = await _shop_owner_id(order.shop_id)
@@ -638,11 +776,83 @@ async def update_order_status(
                 link={"route": "order", "id": order.id},
             )
 
-    return OrderResponse.from_model(
-        order,
-        viewer_id=current_user.id,
-        viewer_role=current_user.role,
-    )
+    # Confirmed by someone else: the agent may be the one without signal, so
+    # this is waiting for them when they reconnect.
+    if confirmed_by != CONFIRMED_BY_AGENT and order.agent_id:
+        if new_status == OrderStatus.picked_up:
+            title = "Pickup confirmed by the shop"
+            body = f"The shop confirmed you collected order {order.id[:8]}. Head to the customer."
+        else:
+            title = "Delivery confirmed by the customer"
+            body = f"The customer confirmed they received order {order.id[:8]}. Well done!"
+        await notify_users(
+            [order.agent_id], title, body, kind="order", link={"route": "order", "id": order.id}
+        )
+
+
+def _pickup_refusal(order: Order) -> str:
+    return {
+        OrderStatus.pending: "No driver has accepted this order yet.",
+        OrderStatus.cancelled: "This order was cancelled.",
+    }.get(order.status, "This order has already been picked up.")
+
+
+def _delivery_refusal(order: Order) -> str:
+    return {
+        OrderStatus.pending: "The driver has not collected your order from the shop yet.",
+        OrderStatus.accepted: "The driver has not collected your order from the shop yet.",
+        OrderStatus.delivered: "This order is already marked as delivered.",
+        OrderStatus.cancelled: "This order was cancelled.",
+    }.get(order.status, "This order cannot be confirmed now.")
+
+
+@router.post("/{order_id}/confirm-pickup", response_model=OrderResponse)
+async def confirm_pickup(
+    order_id: str,
+    current_user: CurrentUser = Depends(require_roles("shop_owner")),
+    db: Session = Depends(get_db),
+):
+    """The shop owner confirms they handed the order to its agent.
+
+    The other way to prove a pickup, beside the agent typing the owner's
+    code: it needs the owner's phone online, not the agent's.
+    """
+    order = _get_order_or_404(db, order_id)
+    if not await _owns_shop(order.shop_id, current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only this shop's owner can confirm the pickup.",
+        )
+    if order.status != OrderStatus.accepted or order.agent_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_pickup_refusal(order))
+
+    await _complete_handover(db, order, OrderStatus.picked_up, confirmed_by=CONFIRMED_BY_SHOP)
+    return OrderResponse.from_model(order, viewer_id=current_user.id, viewer_role=current_user.role)
+
+
+@router.post("/{order_id}/confirm-delivery", response_model=OrderResponse)
+async def confirm_delivery(
+    order_id: str,
+    current_user: CurrentUser = Depends(require_customer),
+    db: Session = Depends(get_db),
+):
+    """The customer confirms they received their order.
+
+    The other way to prove a delivery, beside the agent typing the
+    customer's code. Only after pickup: before that there is nothing in the
+    agent's hands to receive.
+    """
+    order = _get_order_or_404(db, order_id)
+    if order.customer_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the customer who placed this order can confirm it arrived.",
+        )
+    if order.status not in (OrderStatus.picked_up, OrderStatus.in_transit):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_delivery_refusal(order))
+
+    await _complete_handover(db, order, OrderStatus.delivered, confirmed_by=CONFIRMED_BY_CUSTOMER)
+    return OrderResponse.from_model(order, viewer_id=current_user.id, viewer_role=current_user.role)
 
 
 @router.post("/{order_id}/notify-customer", response_model=NotifyCustomerResponse)
@@ -706,15 +916,133 @@ async def notify_customer(
 # ------------------------------------------------------ cancel and rating
 
 
+async def _admin_ids() -> list[str]:
+    """The admin accounts to alert, from user-service.
+
+    Internal endpoint, blocked at the gateway. Returns an empty list on any
+    failure: a missed alert is a smaller problem than a cancellation that
+    fails because user-service is busy.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            response = await client.get(
+                f"{settings.user_service_url}/users/internal/admin-ids"
+            )
+            if response.status_code != 200:
+                return []
+            ids = response.json().get("admin_ids")
+            return [i for i in ids if isinstance(i, str)] if isinstance(ids, list) else []
+    except Exception:
+        return []
+
+
+async def _announce_cancellation(order, cancelled_by: str, reason: str) -> None:
+    """Tell everyone affected except whoever did it (item 8).
+
+    Cancelling used to publish `order.cancelled` and nothing else, and no
+    service turned that into a notification, so a customer whose order
+    vanished was never told anything.
+    """
+    owner_id = await _shop_owner_id(order.shop_id)
+    reason_tail = f" Reason: {reason}" if reason else ""
+
+    if cancelled_by == CANCELLED_BY_CUSTOMER:
+        recipients = [user_id for user_id in (owner_id, order.agent_id) if user_id]
+        title = "An order was cancelled"
+        body = "The customer cancelled their order." + reason_tail
+    elif cancelled_by == CANCELLED_BY_SHOP:
+        recipients = [user_id for user_id in (order.customer_id, order.agent_id) if user_id]
+        title = "Your order was cancelled by the shop"
+        body = "The shop cancelled your order." + reason_tail
+    else:
+        recipients = [
+            user_id
+            for user_id in (order.customer_id, owner_id, order.agent_id)
+            if user_id
+        ]
+        title = "An order was cancelled by an admin"
+        body = "An administrator cancelled this order." + reason_tail
+
+    if not recipients:
+        return
+    await notify_users(
+        recipients,
+        title,
+        body,
+        kind="order",
+        link={"route": "order", "id": order.id},
+    )
+
+
+async def _check_shop_cancellation_streak(db: Session, order) -> None:
+    """Alert admins on a shop's Nth cancellation inside the window (item 8).
+
+    Exactly the Nth: the 4th and 5th produce nothing, so a shop having a bad
+    week does not bury the admins. Counted from `cancelled_at`, so orders
+    cancelled before this column existed do not count.
+    """
+    window_start = _now() - timedelta(days=settings.shop_cancellation_window_days)
+    count = (
+        db.query(func.count(Order.id))
+        .filter(
+            Order.shop_id == order.shop_id,
+            Order.cancelled_by == CANCELLED_BY_SHOP,
+            Order.cancelled_at >= window_start,
+        )
+        .scalar()
+    ) or 0
+
+    if count != settings.shop_cancellation_alert_count:
+        return
+
+    owner_id = await _shop_owner_id(order.shop_id)
+    days = settings.shop_cancellation_window_days
+    if owner_id:
+        await notify_users(
+            [owner_id],
+            "You have cancelled several orders",
+            f"Your shop has cancelled {count} orders in the last {days} days. "
+            "Too many cancellations will be reviewed by an administrator.",
+            kind="order",
+            link={"route": "shop", "id": order.shop_id},
+        )
+
+    admins = await _admin_ids()
+    await publish_event(
+        "shop.cancellation_threshold",
+        {
+            "shop_id": order.shop_id,
+            "owner_id": owner_id,
+            "count": count,
+            "window_days": days,
+            "admin_ids": admins,
+        },
+    )
+
+
 @router.patch("/{order_id}/cancel", response_model=OrderResponse)
 async def cancel_order(
     order_id: str,
+    payload: OrderCancelRequest | None = None,
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Item 8: the customer, the shop that owns the order, or an admin can
+    cancel it while it is pending or accepted. Everyone else affected is
+    told, with the reason when there is one."""
     order = _get_order_or_404(db, order_id)
 
-    if current_user.role != "admin" and current_user.id != order.customer_id:
+    is_admin = current_user.role == "admin"
+    is_customer = current_user.id == order.customer_id
+    # Only asked when it could matter: an unreachable shop-service must not
+    # turn a customer's own cancellation into a 403.
+    is_shop_owner = (
+        False
+        if (is_admin or is_customer)
+        else await _owns_shop(order.shop_id, current_user.id)
+    )
+
+    if not (is_admin or is_customer or is_shop_owner):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to cancel this order",
@@ -726,13 +1054,56 @@ async def cancel_order(
             detail="Cannot cancel an order already in transit or delivered",
         )
 
+    reason = (payload.reason or "").strip() if payload is not None else ""
+    if is_customer:
+        cancelled_by = CANCELLED_BY_CUSTOMER
+    elif is_shop_owner:
+        cancelled_by = CANCELLED_BY_SHOP
+    else:
+        cancelled_by = CANCELLED_BY_ADMIN
+
+    # The customer is shown this reason, so a shop or an admin has to give
+    # one. A customer cancelling their own order does not owe anybody an
+    # explanation.
+    if cancelled_by != CANCELLED_BY_CUSTOMER and not reason:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Please give a reason the customer can be shown.",
+        )
+
     order.status = OrderStatus.cancelled
+    order.cancelled_by = cancelled_by
+    order.cancel_reason = reason or None
+    order.cancelled_at = _now()
     _write_event(db, order.id, OrderStatus.cancelled.value)
     db.commit()
+
+    # Item 12: the shop's stock goes back on the shelf. Best effort -- a
+    # cancellation must not fail because shop-service is down; the order keeps
+    # `stock_released_at` empty and the expiry sweep tries again.
+    await stock.release_for_order(db, order)
+
     db.refresh(order)
 
-    await publish_event("order.cancelled", {"order_id": order.id})
-    return OrderResponse.from_model(order)
+    await publish_event(
+        "order.cancelled",
+        {
+            "order_id": order.id,
+            "shop_id": order.shop_id,
+            "customer_id": order.customer_id,
+            "cancelled_by": cancelled_by,
+            "reason": order.cancel_reason,
+        },
+    )
+    await _announce_cancellation(order, cancelled_by, reason)
+    if cancelled_by == CANCELLED_BY_SHOP:
+        await _check_shop_cancellation_streak(db, order)
+    return OrderResponse.from_model(
+        order,
+        viewer_id=current_user.id,
+        viewer_role=current_user.role,
+        is_shop_owner=is_shop_owner,
+    )
 
 
 @router.post("/{order_id}/rate", response_model=OrderResponse)

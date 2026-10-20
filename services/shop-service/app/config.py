@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     # --- Shop discovery rules (SRS section 5.3 / 5.7) ---
     # A product with this many items (or fewer) left is "Low Stock".
     low_stock_threshold: int = 5
+    # A product needs this many units before customers may see it. Kept apart
+    # from low_stock_threshold: one decides a label, this one decides whether
+    # the product is listed at all. Owners and admins always see every product.
+    min_listable_stock: int = 5
+    # A shop needs this many listable products before an admin can verify it
+    # (item 10). A shop already verified that drops below stays visible: it
+    # would otherwise appear and disappear as stock moves.
+    min_products_to_verify: int = 5
     # SRS REQ-SHOP-1: at most 10 photos per shop.
     max_shop_photos: int = 10
     # SRS REQ-CROWD-3: trust score = average of ratings from the last 90 days.

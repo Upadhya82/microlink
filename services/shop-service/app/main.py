@@ -7,12 +7,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, SessionLocal, engine, run_light_migrations
 from app.dormant import run_dormant_loop
+from app.event_bus import subscribe_events
+from app.feedback_reviews import handle_event as handle_feedback_event
 from app.routers import (
     alerts_router,
     analytics_router,
     products_router,
     reviews_router,
     shops_router,
+    stock_router,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -26,14 +29,19 @@ async def lifespan(app: FastAPI):
     run_light_migrations(engine)
     # 3. follow up on shops that have been closed for a fortnight
     sweeper = asyncio.create_task(run_dormant_loop(SessionLocal))
+    # 4. item 3: a customer's post-delivery feedback becomes a review here
+    feedback_listener = asyncio.create_task(
+        subscribe_events(lambda envelope: handle_feedback_event(envelope, SessionLocal))
+    )
     try:
         yield
     finally:
-        sweeper.cancel()
-        try:
-            await sweeper
-        except asyncio.CancelledError:
-            pass
+        for task in (sweeper, feedback_listener):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="MicroLink Shop Service", version="2.0.0", lifespan=lifespan)
@@ -53,6 +61,8 @@ app.include_router(alerts_router.router)
 app.include_router(products_router.router)
 app.include_router(analytics_router.router)
 app.include_router(reviews_router.router)
+# Internal, called by delivery-service only; the gateway blocks these paths.
+app.include_router(stock_router.router)
 
 
 @app.get("/health")

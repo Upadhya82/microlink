@@ -13,6 +13,7 @@ import '../../../core/utils/route_args.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/required_fields_note.dart';
 import '../../../core/widgets/branded_app_bar.dart';
 
 enum _PinMode { drop, pickup }
@@ -315,11 +316,13 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: colors.textSecondary),
               ),
               const SizedBox(height: AppSpacing.lg),
+              const RequiredFieldsNote(),
               _buildShopField(context),
               const SizedBox(height: AppSpacing.lg),
               AppTextField(
                 controller: _pickupController,
                 label: 'Pickup address',
+                isRequired: true,
                 hint: 'Filled in from the shop. You can edit it.',
                 prefixIcon: Icons.storefront_outlined,
                 validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter the pickup address' : null,
@@ -328,6 +331,7 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
               AppTextField(
                 controller: _dropController,
                 label: 'Drop address',
+                isRequired: true,
                 hint: 'Where should we deliver?',
                 prefixIcon: Icons.home_outlined,
                 validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter the drop address' : null,

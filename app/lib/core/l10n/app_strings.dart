@@ -116,6 +116,22 @@ const Map<String, Map<String, String>> _translations = {
   'en': {
     // --- common
     'app.name': 'MicroLink',
+    // Item 5: shown once at the top of every form, so the * markers on the
+    // fields below it mean something.
+    'form.required_note': 'Fields marked * are required.',
+    // Item 15: Settings can try the voice before a driver needs it on the road.
+    // Item 14: offline is read-only -- saved data stays readable, nothing
+    // that would write is offered.
+    'offline.banner': 'You are offline. Showing saved information.',
+    'offline.action_blocked': 'You are offline. Connect to the internet to do this.',
+    'offline.saved_at': 'Saved information from',
+    'settings.voice': 'Voice guidance',
+    'settings.voice_subtitle':
+        'Spoken directions use your chosen language when your device has a voice for it.',
+    'settings.test_voice': 'Test voice',
+    'settings.voice_testing': 'Speaking…',
+    'settings.voice_sample': 'In 200 metres, turn left onto Galle Road.',
+    'form.required_suffix': 'required',
     'common.cancel': 'Cancel',
     'common.save': 'Save',
     'common.retry': 'Retry',
@@ -244,6 +260,17 @@ const Map<String, Map<String, String>> _translations = {
 },
   'si': {
     'app.name': 'මයික්‍රෝලින්ක්',
+    'form.required_note': '* ලකුණ ඇති කොටස් අනිවාර්යයි.',
+    'offline.banner': 'ඔබ දැන් නොබැඳිය. සුරකින ලද තොරතුරු පෙන්වයි.',
+    'offline.action_blocked': 'ඔබ දැන් නොබැඳිය. මෙය කිරීමට අන්තර්ජාලයට සම්බන්ධ වන්න.',
+    'offline.saved_at': 'සුරකින ලද තොරතුරු',
+    'settings.voice': 'හඬ මාර්ගෝපදේශය',
+    'settings.voice_subtitle':
+        'ඔබේ උපාංගයේ එම භාෂාවට හඬක් ඇති විට, දිශාවන් ඔබ තෝරාගත් භාෂාවෙන් කියවේ.',
+    'settings.test_voice': 'හඬ පරීක්ෂා කරන්න',
+    'settings.voice_testing': 'කියවමින්…',
+    'settings.voice_sample': 'මීටර් 200කින්, ගාලු පාරට වමට හරවන්න.',
+    'form.required_suffix': 'අනිවාර්ය',
     'common.cancel': 'අවලංගු කරන්න',
     'common.save': 'සුරකින්න',
     'common.retry': 'නැවත උත්සාහ කරන්න',

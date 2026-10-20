@@ -2,17 +2,18 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/constants/app_constants.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors_extension.dart';
 import '../../../core/theme/app_spacing.dart';
-import '../../../core/utils/media_url.dart';
 import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/stagger_in.dart';
 import '../../../core/widgets/branded_app_bar.dart';
+import '../widgets/admin_document_row.dart';
 
 /// The admin's moderation desk: everything waiting on a decision, plus the
 /// live system monitor.
@@ -205,6 +206,8 @@ class _ShopQueueTabState extends _QueueTabState<_ShopQueueTab> {
   Widget build(BuildContext context) {
     return buildList((context, shop, _) {
       final colors = context.appColors;
+      final listed = (shop['listable_product_count'] as num?)?.toInt() ?? 0;
+      final canVerify = listed >= AppConstants.minProductsToVerify;
       return AppCard(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -232,6 +235,29 @@ class _ShopQueueTabState extends _QueueTabState<_ShopQueueTab> {
                     .bodySmall
                     ?.copyWith(color: colors.textSecondary),
               ),
+            const SizedBox(height: AppSpacing.sm),
+            // Item 10: a shop cannot be verified until customers would
+            // actually find something to buy, so say where it stands rather
+            // than letting the admin tap Verify into a 409.
+            Row(
+              children: [
+                Icon(
+                  listed >= AppConstants.minProductsToVerify
+                      ? Icons.check_circle_outline
+                      : Icons.inventory_2_outlined,
+                  size: 16,
+                  color: canVerify ? colors.success : colors.warning,
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Text(
+                  '$listed of ${AppConstants.minProductsToVerify} products listed',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: canVerify ? colors.success : colors.warning,
+                      ),
+                ),
+              ],
+            ),
             const SizedBox(height: AppSpacing.md),
             Row(
               children: [
@@ -243,10 +269,17 @@ class _ShopQueueTabState extends _QueueTabState<_ShopQueueTab> {
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () => _verify(shop, true),
-                    icon: const Icon(Icons.verified_rounded, size: 18),
-                    label: const Text('Verify'),
+                  child: Tooltip(
+                    message: canVerify
+                        ? ''
+                        : 'This shop needs at least '
+                            '${AppConstants.minProductsToVerify} products with '
+                            '${AppConstants.minListableStock} or more in stock.',
+                    child: FilledButton.icon(
+                      onPressed: canVerify ? () => _verify(shop, true) : null,
+                      icon: const Icon(Icons.verified_rounded, size: 18),
+                      label: const Text('Verify'),
+                    ),
                   ),
                 ),
               ],
@@ -402,7 +435,7 @@ class _ApplicantQueueTabState extends _QueueTabState<_ApplicantQueueTab> {
                 ),
               )
             else
-              ...documents.map((d) => _DocumentRow(document: d)),
+              ...documents.map((d) => AdminDocumentRow(document: d)),
             const SizedBox(height: AppSpacing.sm),
             Row(
               children: [
@@ -425,66 +458,6 @@ class _ApplicantQueueTabState extends _QueueTabState<_ApplicantQueueTab> {
         ),
       );
     });
-  }
-}
-
-class _DocumentRow extends StatelessWidget {
-  final Map<String, dynamic> document;
-
-  const _DocumentRow({required this.document});
-
-  @override
-  Widget build(BuildContext context) {
-    final isPdf = (document['content_type'] as String? ?? '').contains('pdf');
-    final url = mediaUrl('/users/documents/${document['id']}/file');
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Row(
-        children: [
-          // PDFs have no thumbnail, so show the type instead of a broken box.
-          if (isPdf)
-            const Icon(Icons.picture_as_pdf_rounded, size: 44)
-          else
-            ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.input),
-              child: Image.network(
-                url!,
-                headers: authImageHeaders(),
-                width: 44,
-                height: 44,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined, size: 44),
-              ),
-            ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Text(
-              (document['doc_type'] as String? ?? '').replaceAll('_', ' '),
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ),
-          IconButton(
-            tooltip: 'Open full size',
-            visualDensity: VisualDensity.compact,
-            onPressed: () => showDialog<void>(
-              context: context,
-              builder: (_) => Dialog(
-                child: isPdf
-                    ? const Padding(
-                        padding: EdgeInsets.all(AppSpacing.xl),
-                        child: Text('PDF preview is not available in the app.'),
-                      )
-                    : InteractiveViewer(
-                        child: Image.network(url!, headers: authImageHeaders()),
-                      ),
-              ),
-            ),
-            icon: const Icon(Icons.open_in_full_rounded, size: 18),
-          ),
-        ],
-      ),
-    );
   }
 }
 

@@ -28,6 +28,27 @@ SERVICE_MAP = {
     "/notifications": "http://admin-service:8000",
 }
 
+# Service-to-service only: paths no app may reach through the gateway.
+# shop-service's stock reserve/release move product stock behind an order, and
+# delivery-service is the only caller that is allowed to (item 12). It reaches
+# shop-service directly inside the compose network, so blocking the public way
+# in costs nothing.
+INTERNAL_PATH_PATTERNS = (
+    ("/shops/", "/stock/"),
+    # user-service's admin-id lookup, used by delivery-service when a shop's
+    # cancellations cross the alert threshold (item 8).
+    ("/users/internal/", "/users/internal/"),
+)
+
+
+def _is_internal(path: str) -> bool:
+    full_path = f"/{path}"
+    return any(
+        full_path.startswith(prefix) and middle in full_path
+        for prefix, middle in INTERNAL_PATH_PATTERNS
+    )
+
+
 # httpx already decodes the body, so these upstream headers no longer match it.
 _DROP_RESPONSE_HEADERS = {"content-encoding", "content-length", "transfer-encoding", "connection"}
 
@@ -56,6 +77,12 @@ def _resolve_target(path: str) -> str | None:
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
 async def gateway_proxy(request: Request, path: str):
     path = _strip_api_prefix(path)
+    if _is_internal(path):
+        # 404 rather than 403: an endpoint the app may not use should not even
+        # announce that it exists.
+        return Response(
+            content='{"detail":"Not Found"}', status_code=404, media_type="application/json"
+        )
     target_host = _resolve_target(path)
     if target_host is None:
         return Response(

@@ -6,14 +6,13 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/network/multipart_upload.dart';
 import '../../../core/network/session_manager.dart';
 import '../../../core/theme/app_colors_extension.dart';
-import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/view_state.dart';
-import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/stagger_in.dart';
 import '../document_types.dart';
+import '../widgets/document_tile.dart';
 import '../../../core/widgets/branded_app_bar.dart';
 
 /// Upload the documents an admin needs before approving a shop owner or
@@ -154,7 +153,7 @@ class _VerificationDocumentsScreenState extends State<VerificationDocumentsScree
                   for (var i = 0; i < required.length; i++)
                     StaggerIn(
                       index: i + 1,
-                      child: _DocumentTile(
+                      child: DocumentTile(
                         type: docTypeFor(required[i]),
                         document: byType[required[i]],
                         uploading: _uploading.contains(required[i]),
@@ -173,7 +172,7 @@ class _VerificationDocumentsScreenState extends State<VerificationDocumentsScree
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 for (final value in optional)
-                  _DocumentTile(
+                  DocumentTile(
                     type: docTypeFor(value),
                     document: byType[value],
                     uploading: _uploading.contains(value),
@@ -252,118 +251,6 @@ class _StatusBanner extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _DocumentTile extends StatelessWidget {
-  final DocType type;
-  final Map<String, dynamic>? document;
-  final bool uploading;
-  final void Function(DocType) onUpload;
-  final void Function(Map<String, dynamic>) onDelete;
-
-  const _DocumentTile({
-    required this.type,
-    required this.document,
-    required this.uploading,
-    required this.onUpload,
-    required this.onDelete,
-  });
-
-  String _sizeLabel(int bytes) {
-    if (bytes >= 1024 * 1024) return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
-    return '${(bytes / 1024).round()} KB';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final colors = context.appColors;
-    final uploaded = document != null;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.md),
-      child: AppCard(
-        child: Row(
-          children: [
-            AnimatedContainer(
-              duration: AppMotion.medium,
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: uploaded
-                    ? colors.success.withValues(alpha: 0.18)
-                    : colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(AppRadius.input),
-              ),
-              alignment: Alignment.center,
-              child: Icon(
-                uploaded ? Icons.check_rounded : type.icon,
-                color: uploaded ? colors.success : colors.textSecondary,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    type.label,
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                  Text(
-                    uploaded
-                        ? '${document!['file_name']} · '
-                            '${_sizeLabel((document!['size_bytes'] as num?)?.toInt() ?? 0)}'
-                        : type.help,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: colors.textSecondary),
-                  ),
-                ],
-              ),
-            ),
-            if (uploading)
-              const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2.2),
-              )
-            else if (uploaded)
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: 'Replace',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () => onUpload(type),
-                    icon: const Icon(Icons.upload_rounded, size: 20),
-                  ),
-                  IconButton(
-                    tooltip: 'Remove',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () => onDelete(document!),
-                    icon: Icon(Icons.delete_outline, size: 20, color: colorScheme.error),
-                  ),
-                ],
-              )
-            else
-              FilledButton.tonal(
-                onPressed: () => onUpload(type),
-                style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-                child: const Text('Upload'),
-              ),
-          ],
-        ),
       ),
     );
   }

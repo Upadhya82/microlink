@@ -15,6 +15,7 @@ import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/required_fields_note.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../../core/widgets/branded_app_bar.dart';
@@ -234,9 +235,11 @@ class _SubmitAdScreenState extends State<SubmitAdScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const RequiredFieldsNote(),
           AppTextField(
             controller: _advertiserController,
             label: 'Advertiser name',
+            isRequired: true,
             hint: 'e.g. Perera Super Grocers',
             validator: (v) => Validators.required(v, field: 'Advertiser name'),
           ),
@@ -244,6 +247,7 @@ class _SubmitAdScreenState extends State<SubmitAdScreen> {
           AppTextField(
             controller: _titleController,
             label: 'Headline',
+            isRequired: true,
             hint: 'e.g. Fresh vegetables, restocked daily',
             validator: (v) => Validators.required(v, field: 'Headline'),
           ),
@@ -326,6 +330,7 @@ class _SubmitAdScreenState extends State<SubmitAdScreen> {
           AppButton(
             label: 'Submit for Review',
             isLoading: _submitting,
+            requiresConnection: true,
             onPressed: _submitting ? null : _submit,
           ),
         ],

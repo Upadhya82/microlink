@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app import confirmations as conf
 from app import trust
 from app.auth import CurrentUser, get_current_user, require_admin
+from app.config import settings
 from app.database import get_db
 from app.event_bus import notify_users, publish_event
 from app.geo import haversine_km
@@ -200,7 +201,32 @@ async def confirm_shop_report(
     Once enough of the answers are positive the administrator is notified
     once, so the review queue holds reports the neighbourhood has already
     vouched for rather than every claim anyone made.
+
+    Item 7: only a verified account with enough standing may answer. Before
+    this, any signed-in account could vouch for a shop -- including one
+    whose own reports admins had just rejected, and a shop owner or driver
+    whose application had not been approved.
     """
+    if not trust.can_confirm_reports(
+        is_verified=current_user.is_verified,
+        score=None,
+        minimum=settings.min_confirm_trust,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account must be verified before you can confirm shops.",
+        )
+    score = trust.get_or_create_trust_score(db, current_user.id).score
+    if not trust.can_confirm_reports(
+        is_verified=current_user.is_verified,
+        score=score,
+        minimum=settings.min_confirm_trust,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account cannot confirm shops yet.",
+        )
+
     report = db.get(NewShopReport, report_id)
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop report not found")

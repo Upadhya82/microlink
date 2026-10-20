@@ -1,6 +1,15 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_strings.dart';
 import 'obscure_reveal_controller.dart';
+
+/// The label for a required field: "Full name *" (item 5).
+///
+/// One helper so every form marks required fields the same way, and so a
+/// screen reader is never left reading out a bare asterisk -- the widgets
+/// that use this pair it with a spoken "required" (see [AppTextField]).
+String requiredLabel(String label, {bool isRequired = true}) =>
+    isRequired ? '$label *' : label;
 
 /// The one text input widget every form should use, so inputs look and
 /// behave identically across the app.
@@ -14,6 +23,13 @@ class AppTextField extends StatefulWidget {
   final TextEditingController controller;
   final String label;
   final String? hint;
+
+  /// Shown under the field, for a rule the label cannot carry on its own.
+  final String? helperText;
+
+  /// Item 5: adds " *" to the label and tells a screen reader the field is
+  /// required, so the marker is not information only sighted users get.
+  final bool isRequired;
   final bool obscureText;
   final TextInputType keyboardType;
   final IconData? prefixIcon;
@@ -28,6 +44,8 @@ class AppTextField extends StatefulWidget {
     required this.controller,
     required this.label,
     this.hint,
+    this.helperText,
+    this.isRequired = false,
     this.obscureText = false,
     this.keyboardType = TextInputType.text,
     this.prefixIcon,
@@ -114,7 +132,7 @@ class _AppTextFieldState extends State<AppTextField> with SingleTickerProviderSt
     // not also obscure -- it would hide the animation entirely.
     final obscure = wiping ? false : widget.obscureText;
 
-    return TextFormField(
+    final field = TextFormField(
       controller: widget.controller,
       obscureText: obscure,
       // A password field must never offer suggestions or autocorrect, and
@@ -128,11 +146,22 @@ class _AppTextFieldState extends State<AppTextField> with SingleTickerProviderSt
       enabled: widget.enabled,
       onChanged: widget.onChanged,
       decoration: InputDecoration(
-        labelText: widget.label,
+        labelText: requiredLabel(widget.label, isRequired: widget.isRequired),
         hintText: widget.hint,
+        helperText: widget.helperText,
+        helperMaxLines: 3,
         prefixIcon: widget.prefixIcon != null ? Icon(widget.prefixIcon) : null,
         suffixIcon: widget.suffixIcon,
       ),
+    );
+
+    if (!widget.isRequired) return field;
+    // The asterisk is a visual convention; this is what a screen reader
+    // reads out instead of "Full name star".
+    return Semantics(
+      textField: true,
+      label: '${widget.label}, ${tr("form.required_suffix")}',
+      child: field,
     );
   }
 }

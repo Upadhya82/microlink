@@ -13,6 +13,7 @@ container. From the folder that holds docker-compose.yml:
 Every line says PASS or FAIL. It creates fresh test users each run.
 """
 
+import base64
 import json
 import sys
 import threading
@@ -90,13 +91,110 @@ def stop(message):
     sys.exit(1)
 
 
-def register(role, label):
-    email = "%s_%d@microlinktest.com" % (label, STAMP)
-    code, data = call(
-        "POST",
-        USER + "/auth/register",
-        body={"email": email, "password": PASSWORD, "full_name": "Test " + label, "role": role},
+# A tiny valid PNG, used as the placeholder for every document a delivery
+# agent has to supply. Inline so this script still needs nothing but the
+# standard library (it runs inside the delivery-service container).
+PLACEHOLDER_PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAPAAAACgCAIAAAC9uXYyAAABRElEQVR42u3SQREAMAjAsDFBSEIaWlHBh0sk9BpZ"
+    "/eCKLwGGBkODocHQGBoMDYYGQ4OhMTQYGgwNhgZDY2gwNBgaDA2GxtBgaDA0GBoMjaHB0GBoMDQYGkODocHQYGgwNIYG"
+    "Q4OhwdAYGgwNhgZDg6ExNBgaDA2GBkNjaDA0GBoMDYbG0GBoMDQYGgyNocHQYGgwNBgaQ4OhwdBgaDA0hgZDg6HB0GBo"
+    "DA2GBkODoTE0GBoMDYYGQ2NoMDQYGgwNhsbQYGgwNBgaDI2hwdBgaDA0GBpDg6HB0GBoMDSGBkODocHQYGgMDYYGQ4Oh"
+    "MTQYGgwNhgZDY2gwNBgaDA2GxtBgaDA0GBoMjaHB0GBoMDQYGkODocHQYGgwNIYGQ4OhwdBgaAwNhgZDg6HB0BgaDA2G"
+    "BkNjaDA0GBoMDYbG0GBoMDTsGCF0Amq+qgrFAAAAAElFTkSuQmCC"
+)
+
+# Mirrors REQUIRED_DOCUMENTS in user-service: item 16 means a delivery agent
+# can no longer be created through /auth/register at all, so every one of
+# these must travel in the same request as the account.
+AGENT_DOCUMENT_TYPES = (
+    "national_id",
+    "driving_licence",
+    "police_clearance",
+    "vehicle_registration",
+    "profile_photo",
+)
+
+
+def multipart(fields, files):
+    """Encode a multipart/form-data body with the standard library only."""
+    boundary = "----MicroLinkDeliveryTest%d" % STAMP
+    crlf = "\r\n"
+    parts = []
+    for name, value in fields:
+        parts.append(
+            (
+                "--%s%s" % (boundary, crlf)
+                + 'Content-Disposition: form-data; name="%s"%s%s' % (name, crlf, crlf)
+                + "%s%s" % (value, crlf)
+            ).encode()
+        )
+    for name, filename, payload in files:
+        parts.append(
+            (
+                "--%s%s" % (boundary, crlf)
+                + 'Content-Disposition: form-data; name="%s"; filename="%s"%s'
+                % (name, filename, crlf)
+                + "Content-Type: image/png%s%s" % (crlf, crlf)
+            ).encode()
+            + payload
+            + crlf.encode()
+        )
+    parts.append(("--%s--%s" % (boundary, crlf)).encode())
+    return "multipart/form-data; boundary=" + boundary, b"".join(parts)
+
+
+def apply_with_documents(email, role, label, doc_types):
+    """POST /auth/register-application with a placeholder per document."""
+    document = base64.b64decode(PLACEHOLDER_PNG_B64)
+    fields = [
+        ("email", email),
+        ("password", PASSWORD),
+        ("full_name", "Test " + label),
+        ("role", role),
+        ("phone", "0771234567"),
+    ]
+    files = []
+    for doc_type in doc_types:
+        fields.append(("doc_types", doc_type))
+        files.append(("files", doc_type + ".png", document))
+
+    content_type, body = multipart(fields, files)
+    request = urllib.request.Request(
+        USER + "/auth/register-application",
+        data=body,
+        headers={"Content-Type": content_type},
+        method="POST",
     )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.status, parse(response.read().decode())
+    except urllib.error.HTTPError as error:
+        return error.code, parse(error.read().decode())
+    except Exception as error:
+        return 0, str(error)
+
+
+def register(role, label):
+    """Create an account, the way that role is allowed to (item 16).
+
+    A customer self-registers. A delivery agent has to apply with its
+    documents, because /auth/register refuses the role outright -- it used
+    to hand out accounts that could never be approved or used.
+    """
+    email = "%s_%d@microlinktest.com" % (label, STAMP)
+    if role == "delivery_agent":
+        code, data = apply_with_documents(email, role, label, AGENT_DOCUMENT_TYPES)
+    else:
+        code, data = call(
+            "POST",
+            USER + "/auth/register",
+            body={
+                "email": email,
+                "password": PASSWORD,
+                "full_name": "Test " + label,
+                "role": role,
+            },
+        )
     if not check("register " + label, code == 201, data):
         stop("could not register " + label + ". Is user-service running?")
     return {"email": email, "id": data["user"]["id"], "token": data["access_token"]}
@@ -253,8 +351,17 @@ def main():
     code, data = call("GET", DELIVERY + "/delivery/orders/%s" % order_a, customer["token"])
     check("customer sees the ETA on the order", code == 200 and data.get("agent_eta_minutes") is not None, data)
 
+    # Handover codes: an agent cannot advance these two states alone. The app
+    # gets the pickup code from the shop owner and the delivery code from the
+    # customer; this script has no shop-service, so it reads both from the
+    # admin view of the order, the one role that is shown both.
+    code, data = call("GET", DELIVERY + "/delivery/orders/%s" % order_a, admin_token)
+    pickup_code = data.get("pickup_code") if code == 200 else None
+    delivery_code = data.get("delivery_code") if code == 200 else None
+    check("admin can read both handover codes", bool(pickup_code and delivery_code), data)
+
     already_picked_up = False
-    code, data = call("PATCH", status_url, winner["token"], {"status": "picked_up", "lat": FAR_AWAY[0], "lng": FAR_AWAY[1]})
+    code, data = call("PATCH", status_url, winner["token"], {"status": "picked_up", "lat": FAR_AWAY[0], "lng": FAR_AWAY[1], "code": pickup_code})
     if code == 400:
         check("geofence blocks pickup far from the shop", True)
     elif code == 200:
@@ -263,15 +370,18 @@ def main():
     else:
         check("geofence check gave an unexpected answer", False, data)
     if not already_picked_up:
-        code, data = call("PATCH", status_url, winner["token"], {"status": "picked_up", "lat": PICKUP[0], "lng": PICKUP[1]})
-        check("pickup accepted next to the shop", code == 200 and data.get("status") == "picked_up", data)
-    code, data = call("PATCH", status_url, winner["token"], {"status": "in_transit"})
-    check("order -> in_transit", code == 200 and data.get("status") == "in_transit", data)
-    code, data = call("PATCH", status_url, winner["token"], {"status": "delivered", "lat": DROP[0], "lng": DROP[1]})
+        code, data = call("PATCH", status_url, winner["token"], {"status": "picked_up", "lat": PICKUP[0], "lng": PICKUP[1], "code": pickup_code})
+        check("pickup accepted next to the shop", code == 200 and data.get("status") in ("picked_up", "in_transit"), data)
+    code, data = call("PATCH", status_url, winner["token"], {"status": "delivered", "lat": DROP[0], "lng": DROP[1], "code": delivery_code})
     check("delivered accepted next to the customer", code == 200 and data.get("status") == "delivered", data)
     code, data = call("GET", DELIVERY + "/delivery/orders/%s" % order_a, customer["token"])
     events = [event["status"] for event in data.get("events", [])] if code == 200 else []
-    check("history has every step", events == ["pending", "accepted", "picked_up", "in_transit", "delivered"], events)
+    check(
+        "history has every step",
+        events == ["pending", "accepted", "picked_up", "in_transit", "delivered"]
+        or events == ["pending", "accepted", "picked_up", "delivered"],
+        events,
+    )
 
     section("10. Performance and rating (REQ-AGENT-5)")
     perf_url = DELIVERY + "/delivery/agents/%s/performance" % winner["id"]

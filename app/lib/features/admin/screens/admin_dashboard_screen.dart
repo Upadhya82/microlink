@@ -11,6 +11,7 @@ import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/required_fields_note.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/role_nav_scaffold.dart';
 import '../../../core/widgets/status_badge.dart';
@@ -1892,9 +1893,11 @@ class _AddPlanSheetState extends State<_AddPlanSheet> {
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: AppSpacing.lg),
+              const RequiredFieldsNote(),
               AppTextField(
                 controller: _nameController,
                 label: 'Name',
+                isRequired: true,
                 enabled: !_isSubmitting,
                 validator: (value) =>
                     (value == null || value.trim().isEmpty) ? 'Name is required' : null,
@@ -1910,6 +1913,7 @@ class _AddPlanSheetState extends State<_AddPlanSheet> {
               AppTextField(
                 controller: _priceController,
                 label: 'Price per month',
+                isRequired: true,
                 hint: 'e.g. 9.99',
                 keyboardType: TextInputType.numberWithOptions(decimal: true),
                 enabled: !_isSubmitting,
