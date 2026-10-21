@@ -182,6 +182,34 @@ class OrderCancelRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=200)
 
 
+class OrderReleaseRequest(BaseModel):
+    """The assigned agent hands an accepted order back to the pool.
+
+    The reason is required: the customer watches their order jump back to
+    "looking for a driver", so they are owed an explanation, and a released
+    order with no reason tells the admin nothing about why it happened.
+    """
+
+    reason: str = Field(min_length=3, max_length=200)
+
+    @field_validator("reason")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+        if len(cleaned) < 3:
+            raise ValueError("Please say briefly why you cannot do this delivery.")
+        return cleaned
+
+
+class OrderReleaseResponse(BaseModel):
+    order_id: str
+    status: str
+    reason: str
+    # True when the order went back on offer for other agents, which is the
+    # normal outcome. False would mean it ended some other way.
+    returned_to_pool: bool = True
+
+
 class OrderRejectRequest(BaseModel):
     # "declined" = the agent tapped Reject. "timeout" = the 30 s timer ran out.
     reason: Literal["declined", "timeout"] = "declined"
@@ -232,6 +260,7 @@ class OrderResponse(BaseModel):
     status: str
     total_amount: float
     accepted_at: datetime | None = None
+    reopened_at: datetime | None = None
     picked_up_at: datetime | None = None
     delivered_at: datetime | None = None
     promised_by: datetime | None = None

@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
+import '../confirm_receipt.dart';
 import '../../location/widgets/map_tile_layer.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/l10n/app_strings.dart';
@@ -42,6 +43,7 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
   bool _notifying = false;
   bool _openingNavigation = false;
   bool _confirmingReceipt = false;
+  bool _releasing = false;
   Timer? _pollTimer;
 
   // Customer rating of the agent, shown once the order is delivered.
@@ -213,46 +215,127 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     }
   }
 
-  /// Only the customer, and only while the parcel is with the driver.
-  bool _canConfirmReceipt(DeliveryOrder order) =>
-      SessionManager.instance.userId == order.customerId &&
-      (order.status == 'picked_up' || order.status == 'in_transit');
-
   /// The customer confirms the delivery themselves, instead of the driver
   /// typing their code -- for when the driver's phone has no signal.
   Future<void> _confirmReceipt(DeliveryOrder order) async {
-    final confirmed = await showDialog<bool>(
+    setState(() => _confirmingReceipt = true);
+    try {
+      if (await confirmOrderReceipt(context, order) && mounted) {
+        await _fetchOrder();
+      }
+    } finally {
+      if (mounted) setState(() => _confirmingReceipt = false);
+    }
+  }
+
+  /// The agent gives an accepted order back, before they have collected it.
+  ///
+  /// An agent may hold only one order at a time, so one they cannot finish
+  /// used to block every other delivery with no way out of it. The order
+  /// goes back on offer rather than being cancelled -- the customer still
+  /// wants it, so the next driver nearby gets the chance.
+  Future<void> _releaseOrder(DeliveryOrder order) async {
+    // The button only shows a spinner once the reason is in, so without
+    // this a second tap while the dialog is open opens a second dialog --
+    // and answering both sends the request twice.
+    if (_releasing) return;
+    final collected = order.status != 'accepted';
+    setState(() => _releasing = true);
+    try {
+      final reason = await _askWhy(collected: collected);
+      if (reason == null || !mounted) return;
+      await ApiClient.instance.post(
+        '/delivery/orders/${order.id}/release',
+        body: {'reason': reason},
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            collected
+                ? 'Delivery cancelled. Please return the items to the shop. '
+                    'You can take a new delivery now.'
+                : 'Order handed back. You can take a new delivery now.',
+          ),
+        ),
+      );
+      // It is not this agent's order any more, so there is nothing left on
+      // this screen for them -- go back to the list of available jobs.
+      Navigator.pop(context, true);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Could not hand the order back.')));
+    } finally {
+      if (mounted) setState(() => _releasing = false);
+    }
+  }
+
+  /// The customer is shown this reason, and the server insists on one.
+  ///
+  /// [collected] changes what giving up actually does, so the warning has to
+  /// change with it -- an agent carrying the parcel is agreeing to take it
+  /// back to the shop, which is a much bigger thing to agree to by accident.
+  Future<String?> _askWhy({required bool collected}) async {
+    final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final reason = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Got your order?'),
-        content: const Text(
-          'Confirm only once the order is in your hands. This cannot be undone.',
+        title: Text(
+          collected ? 'Cannot complete this delivery?' : 'Cannot do this delivery?',
+        ),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                collected
+                    ? 'You are carrying this order, so it will be cancelled and '
+                        'you must return the items to the shop. The customer, '
+                        'the shop and an administrator will be told why.'
+                    : 'The order goes back to other drivers nearby, and the '
+                        'customer is told why.',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: controller,
+                autofocus: true,
+                maxLength: 200,
+                decoration: const InputDecoration(
+                  labelText: 'Reason',
+                  hintText: 'e.g. my bike has broken down',
+                ),
+                validator: (value) => (value ?? '').trim().length < 3
+                    ? 'Please say briefly why.'
+                    : null,
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Not yet'),
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Keep it'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Yes, I have it'),
+            onPressed: () {
+              if (formKey.currentState?.validate() ?? false) {
+                Navigator.pop(dialogContext, controller.text.trim());
+              }
+            },
+            child: Text(collected ? 'Give it up' : 'Hand it back'),
           ),
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
-
-    setState(() => _confirmingReceipt = true);
-    try {
-      await ApiClient.instance.post('/delivery/orders/${order.id}/confirm-delivery');
-      if (!mounted) return;
-      await _fetchOrder();
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } finally {
-      if (mounted) setState(() => _confirmingReceipt = false);
-    }
+    controller.dispose();
+    return reason;
   }
 
   Future<void> _advanceStatus(String nextStatus) async {
@@ -395,7 +478,7 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
                       ),
                       const SizedBox(height: AppSpacing.lg),
                     ],
-                    if (_canConfirmReceipt(order)) ...[
+                    if (canConfirmReceipt(order)) ...[
                       AppButton(
                         label: 'I received my order',
                         icon: Icons.check_circle_outline,
@@ -555,6 +638,21 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
                 ?.copyWith(color: context.appColors.textSecondary),
           ),
         ],
+        // The way out of an order this agent cannot finish, at either
+        // stage. What it does differs -- before pickup the order goes back
+        // on offer, after pickup it is cancelled and the parcel goes back
+        // to the shop -- so the wording differs with it.
+        const SizedBox(height: AppSpacing.lg),
+        AppButton(
+          label: toPickup
+              ? "I can't do this delivery"
+              : "I can't complete this delivery",
+          variant: AppButtonVariant.text,
+          icon: Icons.assignment_return_outlined,
+          isLoading: _releasing,
+          requiresConnection: true,
+          onPressed: () => _releaseOrder(order),
+        ),
       ],
     );
   }

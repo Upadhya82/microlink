@@ -33,6 +33,8 @@ from app.schemas import (
     OrderRateRequest,
     OrderRejectRequest,
     OrderRejectResponse,
+    OrderReleaseRequest,
+    OrderReleaseResponse,
     OrderResponse,
     OrderStatusUpdateRequest,
 )
@@ -46,6 +48,10 @@ router = APIRouter(prefix="/delivery/orders", tags=["delivery-orders"])
 CANCELLED_BY_CUSTOMER = "customer"
 CANCELLED_BY_SHOP = "shop"
 CANCELLED_BY_ADMIN = "admin"
+# The agent gave up a delivery they had already collected. Counts towards
+# neither the customer's limit nor the shop's streak -- neither of them did
+# anything -- but it does alert the admins, because the parcel is in limbo.
+CANCELLED_BY_AGENT = "agent"
 
 require_customer = require_roles("user")
 require_delivery_agent = require_roles("delivery_agent")
@@ -63,6 +69,18 @@ ACTIVE_STATUSES = (OrderStatus.accepted, OrderStatus.picked_up, OrderStatus.in_t
 
 _ALREADY_TAKEN = "This order has already been accepted by another agent"
 _ONE_AT_A_TIME = "You already have an active delivery. Finish it before accepting another one."
+
+# An agent can give up a delivery at either stage, but the two are not the
+# same thing. Before pickup nothing has moved, so the order simply goes back
+# on offer. After pickup the agent is holding the customer's goods: the
+# delivery has to end, and the shop and the admins have to hear that a parcel
+# is coming back, or it just disappears with whoever was carrying it.
+_RELEASABLE = (OrderStatus.accepted, OrderStatus.picked_up, OrderStatus.in_transit)
+_NOT_RELEASABLE = {
+    OrderStatus.pending: "This order has no agent assigned, so there is nothing to give up.",
+    OrderStatus.delivered: "This order has already been delivered.",
+    OrderStatus.cancelled: "This order was cancelled.",
+}
 
 
 def _now() -> datetime:
@@ -584,6 +602,202 @@ async def reject_order(
     )
     return OrderRejectResponse(
         order_id=order.id, reason=payload.reason, hidden_until=hidden_until
+    )
+
+
+def _release_refusal(order: Order) -> str:
+    """Why this order cannot be given up, in the agent's own terms."""
+    return _NOT_RELEASABLE.get(order.status, "This order can no longer be given up.")
+
+
+async def _announce_agent_dropout(order: Order, reason: str) -> None:
+    """Tell everyone that a collected parcel is coming back.
+
+    The customer is waiting for goods that are not coming, the shop is the
+    only place the parcel can go, and an admin has to know that stock is
+    sitting in a stranger's bag -- so unlike a pre-pickup hand-back, this
+    one cannot be quiet.
+    """
+    short = order.id[:8]
+    reason_tail = f" Reason: {reason}" if reason else ""
+
+    await notify_users(
+        [order.customer_id],
+        "Your delivery could not be completed",
+        f"The driver carrying order {short} could not finish the delivery.{reason_tail} "
+        "The items are being returned to the shop, and the order has been "
+        "cancelled so you can order again.",
+        kind="order",
+        link={"route": "order", "id": order.id},
+    )
+
+    owner_id = await _shop_owner_id(order.shop_id)
+    if owner_id:
+        await notify_users(
+            [owner_id],
+            "A parcel is being returned",
+            f"The driver for order {short} gave up the delivery after "
+            f"collecting it.{reason_tail} Expect the items back at the shop.",
+            kind="order",
+            link={"route": "order", "id": order.id},
+        )
+
+    admins = await _admin_ids()
+    if admins:
+        await notify_users(
+            admins,
+            "A driver dropped a collected order",
+            f"Order {short} was cancelled by its driver after pickup.{reason_tail} "
+            "The items were with the driver and need to be accounted for.",
+            kind="order",
+            link={"route": "order", "id": order.id},
+        )
+
+
+@router.post("/{order_id}/release", response_model=OrderReleaseResponse)
+async def release_order(
+    order_id: str,
+    payload: OrderReleaseRequest,
+    current_user: CurrentUser = Depends(require_delivery_agent),
+    db: Session = Depends(get_db),
+):
+    """The assigned agent gives up a delivery they cannot finish.
+
+    An agent who accepts an order they then cannot do -- the bike breaks
+    down, the shop is shut, they are taken ill mid-trip -- used to have no
+    way out of it. Because an agent may hold only one active order
+    (REQ-AGENT-3), that one stuck order also locked them out of every other
+    delivery, with nothing to do but wait for support.
+
+    What happens next depends on whether they have the parcel:
+
+    * Before pickup, nothing has moved. The order goes back on offer, so
+      the customer keeps the delivery they asked for and the next agent
+      nearby sees it.
+    * After pickup, the agent is carrying the customer's goods. The
+      delivery cannot be quietly passed on, so the order is cancelled and
+      the customer, the shop and the admins are all told the parcel is
+      coming back.
+
+    Either way the agent is free to accept their next order.
+    """
+    _require_verified_agent(current_user)
+
+    order = _get_order_or_404(db, order_id)
+    if order.agent_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the agent assigned to this order can give it up.",
+        )
+    if order.status not in _RELEASABLE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=_release_refusal(order)
+        )
+
+    reason = payload.reason.strip()
+    now = _now()
+    collected = order.status in (OrderStatus.picked_up, OrderStatus.in_transit)
+    previous_status = order.status
+
+    # Claim the change in one statement, for the same reason accepting is one
+    # statement: the customer may be cancelling, or the shop confirming the
+    # pickup, at this exact moment. 0 rows means something else won.
+    if collected:
+        values = {
+            "status": OrderStatus.cancelled,
+            "cancelled_by": CANCELLED_BY_AGENT,
+            "cancel_reason": reason,
+            "cancelled_at": now,
+        }
+    else:
+        values = {
+            "agent_id": None,
+            "status": OrderStatus.pending,
+            "accepted_at": None,
+            "promised_by": None,
+            "reopened_at": now,
+            # The ETA belonged to the agent who has just left.
+            "agent_eta_minutes": None,
+            "agent_notified_at": None,
+        }
+    claimed = db.execute(
+        update(Order)
+        .where(
+            Order.id == order.id,
+            Order.status == previous_status,
+            Order.agent_id == current_user.id,
+        )
+        .values(**values)
+        .execution_options(synchronize_session=False)
+    ).rowcount
+    if claimed != 1:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_HANDOVER_RACE)
+
+    if not collected:
+        # Without this the order reappears at the top of this agent's own
+        # available list a second later, which is exactly what they just
+        # said they cannot do. Same table the Reject button uses, so the
+        # "hidden for good" rule is already there.
+        rejection = (
+            db.query(OrderRejection)
+            .filter(
+                OrderRejection.order_id == order.id,
+                OrderRejection.agent_id == current_user.id,
+            )
+            .first()
+        )
+        if rejection is None:
+            rejection = OrderRejection(order_id=order.id, agent_id=current_user.id)
+            db.add(rejection)
+        rejection.reason = "released"
+        rejection.hidden_until = None
+
+    _write_event(db, order.id, OrderStatus.cancelled.value if collected else "released")
+    db.commit()
+
+    if collected:
+        # Item 12: the shop's stock goes back on the shelf. Best effort --
+        # giving up must not fail because shop-service is down; the order
+        # keeps `stock_released_at` empty and the expiry sweep tries again.
+        await stock.release_for_order(db, order)
+
+    db.refresh(order)
+
+    if collected:
+        await publish_event(
+            "order.cancelled",
+            {
+                "order_id": order.id,
+                "shop_id": order.shop_id,
+                "customer_id": order.customer_id,
+                "cancelled_by": CANCELLED_BY_AGENT,
+                "reason": reason,
+            },
+        )
+        await _announce_agent_dropout(order, reason)
+    else:
+        await publish_event(
+            "order.released",
+            {"order_id": order.id, "agent_id": current_user.id, "reason": reason},
+        )
+        # The customer's screen is about to go from "a driver is on the way"
+        # back to "looking for a driver", so this explains why before they
+        # notice it themselves.
+        await notify_users(
+            [order.customer_id],
+            "Looking for another driver",
+            f"Your driver could not complete order {order.id[:8]} ({reason}). "
+            "We are finding you another one.",
+            kind="order",
+            link={"route": "order", "id": order.id},
+        )
+
+    return OrderReleaseResponse(
+        order_id=order.id,
+        status=order.status.value,
+        reason=reason,
+        returned_to_pool=not collected,
     )
 
 

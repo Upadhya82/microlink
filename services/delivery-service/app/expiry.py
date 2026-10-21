@@ -51,6 +51,20 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
+def waiting_since(order) -> datetime:
+    """When this order started waiting for an agent.
+
+    Normally when it was placed, but an order an agent handed back starts
+    waiting again from that moment. Counting from `created_at` would make a
+    released order instantly older than the timeout, so the sweep would
+    cancel it before any other agent ever saw it in their list.
+    """
+    reopened = getattr(order, "reopened_at", None)
+    if reopened is not None:
+        return _as_utc(reopened)
+    return _as_utc(order.created_at)
+
+
 def expired_orders(orders, now: datetime, timeout_minutes: int = UNCLAIMED_TIMEOUT_MINUTES):
     """The orders that have waited too long with no agent assigned."""
     cutoff = now - timedelta(minutes=timeout_minutes)
@@ -59,7 +73,7 @@ def expired_orders(orders, now: datetime, timeout_minutes: int = UNCLAIMED_TIMEO
         for order in orders
         if order.status == OrderStatus.pending
         and order.agent_id is None
-        and _as_utc(order.created_at) <= cutoff
+        and waiting_since(order) <= cutoff
     ]
 
 

@@ -516,12 +516,18 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
   }
 
-  void _openOrder(DeliveryOrder order) {
-    Navigator.pushNamed(
+  Future<void> _openOrder(DeliveryOrder order) async {
+    await Navigator.pushNamed(
       context,
       AppRoutes.deliveryTracking,
       arguments: DeliveryTrackingArgs(order.id),
     );
+    // The order may have finished -- or been handed back -- while that
+    // screen was open, and either frees this agent to take a new one, so
+    // both lists have to be read again.
+    if (!mounted) return;
+    await _loadActiveOrders();
+    await _loadAvailableOrders();
   }
 
   Future<void> _refreshAll() async {

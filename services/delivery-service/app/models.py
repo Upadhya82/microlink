@@ -139,6 +139,11 @@ class Order(Base):
     )
 
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When an agent last handed this order back to the pool. The wait for an
+    # agent is counted from here rather than `created_at` once it is set,
+    # otherwise a released order is old enough for the unclaimed sweep to
+    # cancel it the moment the next agent could have seen it.
+    reopened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     picked_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Set when an agent accepts; used to decide "on-time" when it is delivered.
