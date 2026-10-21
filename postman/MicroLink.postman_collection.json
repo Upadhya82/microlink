@@ -2841,6 +2841,115 @@
      "response": []
     },
     {
+     "name": "Release Order (agent hands it back)",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/orders/:order_id/release",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "orders",
+        ":order_id",
+        "release"
+       ],
+       "variable": [
+        {
+         "key": "order_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "The assigned delivery agent gives an accepted order back to the pool, before they have collected it. The order returns to 'pending' for other agents rather than being cancelled, and this agent is free to accept another one. Refused once the parcel has been picked up.",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"reason\": \"My bike has broken down\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Confirm Delivery (customer)",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/orders/:order_id/confirm-delivery",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "orders",
+        ":order_id",
+        "confirm-delivery"
+       ],
+       "variable": [
+        {
+         "key": "order_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "The customer confirms the order reached them. Marks it delivered and releases the agent for their next job -- the alternative to the agent typing the customer's delivery code."
+     },
+     "response": []
+    },
+    {
+     "name": "Confirm Pickup (shop owner)",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/delivery/orders/:order_id/confirm-pickup",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "delivery",
+        "orders",
+        ":order_id",
+        "confirm-pickup"
+       ],
+       "variable": [
+        {
+         "key": "order_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "The shop owner confirms they handed the order to its agent -- the alternative to the agent typing the shop's pickup code."
+     },
+     "response": []
+    },
+    {
      "name": "Cancel Order",
      "request": {
       "method": "PATCH",

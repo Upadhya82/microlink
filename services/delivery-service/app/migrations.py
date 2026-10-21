@@ -39,6 +39,10 @@ _STATEMENTS = [
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_lng DOUBLE PRECISION",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS item_description VARCHAR(200)",
     f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS accepted_at {_TS}",
+    # An agent handed the order back to the pool. NULL on orders that
+    # were never released, which is also what the wait-time rule reads
+    # as "still waiting since it was created".
+    f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS reopened_at {_TS}",
     f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS picked_up_at {_TS}",
     f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_at {_TS}",
     f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS promised_by {_TS}",
