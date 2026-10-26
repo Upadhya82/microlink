@@ -74,11 +74,20 @@ async def update_shop_report_status(
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop report not found")
 
+    # Only a real change of status may move the reporter's trust score.
+    # Re-sending the same status (a double-tapped approve button, a retried
+    # request) used to award another +2 and another validated_report every
+    # time, and flipping approved -> rejected -> approved left the score
+    # permanently inflated, because a rejection only takes 1 back.
+    previous_status = report.status
     report.status = ShopReportStatus(payload.status)
     db.commit()
     db.refresh(report)
 
-    trust.adjust_on_moderation(db, report.reporter_id, approved=payload.status == "approved")
+    if previous_status != report.status:
+        trust.adjust_on_moderation(
+            db, report.reporter_id, approved=payload.status == "approved"
+        )
 
     await publish_event(
         "shop_report.status_changed", {"report_id": report.id, "status": report.status.value}

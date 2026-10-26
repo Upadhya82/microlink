@@ -18,8 +18,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, File, Resp
 from sqlalchemy import exists, func, or_
 from sqlalchemy.orm import Session
 
-from app import geo, listings, logic
-from app.auth import CurrentUser, get_current_user, require_roles, require_verified
+from app import community, geo, listings, logic
+from fastapi.security import HTTPAuthorizationCredentials
+
+from app.auth import (
+    CurrentUser,
+    bearer_scheme,
+    get_current_user,
+    get_current_user_optional,
+    require_roles,
+    require_verified,
+)
 from app.config import settings
 from app import dormant
 from app.database import get_db
@@ -37,6 +46,8 @@ from app.overpass_client import geocode_landmark, reverse_geocode, search_nearby
 from app.schemas import (
     LandmarkInfo,
     LandmarkSearchResponse,
+    ShopConfirmRequest,
+    ShopConfirmationResponse,
     ShopVerifyRequest,
     ReverseGeocodeResponse,
     ShopCreateRequest,
@@ -211,6 +222,7 @@ def _to_response(
     counts: dict[str, int] | None = None,
     photos: list[str] | None = None,
     matched_product: str | None = None,
+    confirmations: int = 0,
 ) -> ShopResponse:
     counts = counts or {}
     in_stock = counts.get("in_stock", 0)
@@ -221,6 +233,8 @@ def _to_response(
     response.distance_km = distance_km
     response.status = shop.status or logic.status_from_is_open(shop.is_open)
     response.trust_score = shop.rating_avg or 0.0
+    response.community_confirmations = confirmations
+    response.confirmations_required = settings.community_confirmations_to_verify
     response.photos = photos if photos else ([shop.image_url] if shop.image_url else [])
     response.in_stock_count = in_stock
     response.low_stock_count = low_stock
@@ -239,6 +253,7 @@ def _build_responses(db: Session, rows: list[_Row], q: str | None) -> list[ShopR
     counts = _product_counts(db, ids)
     photos = _photos_by_shop(db, ids)
     matched = _matched_products(db, ids, q)
+    confirmations = community.confirmation_counts(db, ids)
     return [
         _to_response(
             row.shop,
@@ -246,6 +261,7 @@ def _build_responses(db: Session, rows: list[_Row], q: str | None) -> list[ShopR
             counts=counts.get(row.shop.id),
             photos=photos.get(row.shop.id),
             matched_product=matched.get(row.shop.id),
+            confirmations=confirmations.get(row.shop.id, 0),
         )
         for row in rows
     ]
@@ -544,8 +560,15 @@ async def verify_shop(
     shop.is_verified = payload.is_verified
     shop.verified_at = datetime.now(timezone.utc) if payload.is_verified else None
     shop.verified_by = current_user.id if payload.is_verified else None
+    shop.verified_via = community.VERIFIED_VIA_ADMIN if payload.is_verified else None
     db.commit()
     db.refresh(shop)
+
+    if not payload.is_verified:
+        # An admin's decision is the last word: drop the confirmations that
+        # would otherwise verify this shop again by themselves the next time
+        # its owner adds a product.
+        community.clear_confirmations(db, shop.id)
     await publish_event(
         "shop.verified",
         {"shop_id": shop.id, "owner_id": shop.owner_id, "is_verified": shop.is_verified},
@@ -603,6 +626,125 @@ async def trending_categories(
         }
         for category, hits in rows
     ]
+
+
+# ----------------------------------------------------- community verification
+# A shop registered in a town no admin has visited can be vouched for by the
+# customers who walk past it. See app/community.py for why, and for the two
+# gates that make verifying without an admin safe.
+
+
+@router.get("/{shop_id}/confirmations", response_model=ShopConfirmationResponse)
+async def get_shop_confirmations(
+    shop_id: str,
+    current_user: CurrentUser | None = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    """How far along this shop is towards being verified by its neighbours.
+
+    Public, because the count is shown on the shop card to signed-out
+    visitors too; `confirmed_by_me` is only filled in when somebody is
+    signed in, so the app can show "You confirmed this" instead of the
+    button it would otherwise offer twice.
+    """
+    shop = _get_shop_or_404(db, shop_id)
+    count = community.confirmation_count(db, shop.id)
+    listable = listings.listable_product_count(db, shop.id)
+    return ShopConfirmationResponse(
+        shop_id=shop.id,
+        confirmations=count,
+        required=settings.community_confirmations_to_verify,
+        is_verified=shop.is_verified,
+        verified_via=shop.verified_via,
+        confirmed_by_me=(
+            community.has_confirmed(db, shop.id, current_user.id)
+            if current_user is not None
+            else False
+        ),
+        products_still_needed=max(0, settings.min_products_to_verify - listable),
+    )
+
+
+@router.post(
+    "/{shop_id}/confirm",
+    response_model=ShopConfirmationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def confirm_shop_exists(
+    shop_id: str,
+    payload: ShopConfirmRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+):
+    """Vouch that a registered shop really is there.
+
+    Enough of these from distinct nearby customers verify the shop without
+    an admin ever seeing it, which is the point: the neighbourhood knows
+    whether the new grocery down the road exists, and an admin in another
+    district does not.
+
+    Already confirmed by this account is not an error -- the app may retry on
+    a poor connection, and a second tap must not count twice -- so it returns
+    the current standing instead of a 409.
+    """
+    shop = _get_shop_or_404(db, shop_id)
+
+    if shop.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This shop is already verified.",
+        )
+
+    distance_km = community.distance_to_shop(shop, payload.latitude, payload.longitude)
+    is_owner = shop.owner_id == current_user.id
+
+    # The rule is checked twice on purpose. The first pass uses no trust
+    # score, so an owner, an unverified account or somebody out of town is
+    # turned away without this service calling crowdsource-service at all;
+    # the second pass adds the real score. crowdsource-service's own confirm
+    # endpoint is written the same way.
+    try:
+        community.can_confirm_shop(
+            is_verified=current_user.is_verified,
+            trust_score=None,
+            distance_km=distance_km,
+            is_owner=is_owner,
+        )
+        trust_score = await community.fetch_trust_score(
+            current_user.id, credentials.credentials if credentials else None
+        )
+        community.can_confirm_shop(
+            is_verified=current_user.is_verified,
+            trust_score=trust_score,
+            distance_km=distance_km,
+            is_owner=is_owner,
+        )
+    except community.ConfirmationRefused as refused:
+        raise HTTPException(status_code=refused.status_code, detail=refused.reason)
+
+    community.record_confirmation(
+        db,
+        shop_id=shop.id,
+        user_id=current_user.id,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        distance_km=distance_km,
+        trust_score=trust_score,
+    )
+
+    listable = listings.listable_product_count(db, shop.id)
+    await community.try_auto_verify(db, shop, listable)
+
+    return ShopConfirmationResponse(
+        shop_id=shop.id,
+        confirmations=community.confirmation_count(db, shop.id),
+        required=settings.community_confirmations_to_verify,
+        is_verified=shop.is_verified,
+        verified_via=shop.verified_via,
+        confirmed_by_me=True,
+        products_still_needed=max(0, settings.min_products_to_verify - listable),
+    )
 
 
 @router.get("/reverse-geocode", response_model=ReverseGeocodeResponse)

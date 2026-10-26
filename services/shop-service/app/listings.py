@@ -58,8 +58,15 @@ async def review_product_count(db: Session, shop: Shop | None) -> int | None:
     try:
         count = listable_product_count(db, shop.id)
         if not shop.is_verified:
-            # An unverified shop is told by the verify endpoint's 409 and the
-            # "N of 5" line on its dashboard; no need to nag it as well.
+            # A shop its neighbours have already confirmed is waiting on
+            # nothing but this count, so a restock is what verifies it. The
+            # other order -- products first, confirmations later -- is
+            # handled by the confirm endpoint calling the same function.
+            from app import community  # imported here: community imports this module
+
+            await community.try_auto_verify(db, shop, count)
+            # Otherwise an unverified shop is told by the verify endpoint's
+            # 409 and the "N of 5" line on its dashboard; no need to nag it.
             return count
 
         if meets_verification_threshold(count):

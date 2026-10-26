@@ -114,6 +114,12 @@ async def create_product(
     db.add(product)
     db.commit()
     db.refresh(product)
+    # Adding products is how a new shop reaches the listable threshold, so
+    # this is the call that verifies a shop its neighbours have already
+    # confirmed. Updating and deleting a product already did this; creating
+    # one did not, which left that shop waiting for an edit it had no reason
+    # to make.
+    await listings.review_product_count(db, db.get(Shop, shop_id))
     return product
 
 

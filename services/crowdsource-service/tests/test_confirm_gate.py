@@ -26,6 +26,7 @@ from app.trust import can_confirm_reports
 
 CONFIRMER_ID = "11111111-1111-1111-1111-111111111111"
 REPORTER_ID = "22222222-2222-2222-2222-222222222222"
+ADMIN_ID = "33333333-3333-3333-3333-333333333333"
 
 
 def _auth(user_id: str, *, verified: bool = True, role: str = "user") -> dict[str, str]:
@@ -226,7 +227,15 @@ class TrustScoreVerdictTests(ConfirmEndpointTests):
         self.assertFalse(response.json()["can_confirm_shops"])
 
     def test_the_verdict_is_not_guessed_for_somebody_else(self):
-        response = self.client.get(f"/crowdsource/trust-score/{CONFIRMER_ID}")
+        """Read for another account, can_confirm_shops is null rather than a
+        guess: that verdict needs the caller's own verified flag, which this
+        endpoint does not have. Asked as an admin because reading somebody
+        else's score now requires it -- see tests/test_trust_score_access.py.
+        """
+        response = self.client.get(
+            f"/crowdsource/trust-score/{CONFIRMER_ID}",
+            headers=_auth(ADMIN_ID, role="admin"),
+        )
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.json()["can_confirm_shops"])
 

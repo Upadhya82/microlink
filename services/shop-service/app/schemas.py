@@ -72,6 +72,33 @@ class ShopVerifyRequest(BaseModel):
     is_verified: bool = True
 
 
+class ShopConfirmRequest(BaseModel):
+    """A nearby customer vouching that a registered shop really is there.
+
+    The position is required and is the customer's own, not the shop's: it is
+    what makes this confirmation worth more than a guess from out of town.
+    """
+
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
+class ShopConfirmationResponse(BaseModel):
+    """Where a shop stands on its way to being verified by its neighbours."""
+
+    shop_id: str
+    confirmations: int
+    required: int
+    is_verified: bool
+    verified_via: str | None = None
+    # True once the signed-in customer has confirmed this shop, so the app
+    # shows "You confirmed this" rather than offering the button again.
+    confirmed_by_me: bool = False
+    # Item 10 still applies: a shop the neighbourhood vouched for waits here
+    # until it lists enough products. 0 once it does.
+    products_still_needed: int = 0
+
+
 class ShopPhotoResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -112,6 +139,12 @@ class ShopResponse(BaseModel):
     is_verified: bool = False
     photos: list[str] = Field(default_factory=list)
     trust_score: float = 0.0  # same number as rating_avg, named as in the SRS
+    # Community verification: how many nearby customers have confirmed this
+    # shop exists, and how many it needs. The card shows "2 of 3 neighbours
+    # confirmed" on an unverified shop so a customer knows the tap matters.
+    community_confirmations: int = 0
+    confirmations_required: int = 0
+    verified_via: str | None = None
     # Product availability indicators (REQ-SEARCH-4)
     product_count: int = 0
     in_stock_count: int = 0

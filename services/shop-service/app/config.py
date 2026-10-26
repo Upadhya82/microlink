@@ -48,6 +48,26 @@ class Settings(BaseSettings):
     # (item 10). A shop already verified that drops below stays visible: it
     # would otherwise appear and disappear as stock moves.
     min_products_to_verify: int = 5
+    # --- Community verification of a newly registered shop ---
+    # A shop registered by its owner starts unverified, which means nobody
+    # has stood behind the claim that it exists. An admin can verify it, but
+    # in a town the admin has never been to, the people who walk past the
+    # shop every day know better. This many DISTINCT nearby customers
+    # confirming it is treated as the same evidence as an admin's approval.
+    community_confirmations_to_verify: int = 3
+    # How close a customer must be to the shop for their confirmation to
+    # count. Someone in Colombo cannot vouch for a shop in Homagama.
+    confirm_radius_km: float = 5.0
+    # Minimum crowdsourcing trust score a confirmer needs, on the same 0-100
+    # scale crowdsource-service keeps. 50 is what a new account starts with,
+    # so this excludes only accounts whose reports admins have rejected.
+    min_confirm_trust: int = 50
+    # Asked for the confirmer's trust score. Unreachable means the score is
+    # treated as the starting 50 -- the verified-account, proximity and
+    # distinct-user rules still apply, so a crowdsource-service outage slows
+    # nothing down but cannot let a rejected reporter through either.
+    crowdsource_service_url: str = "http://crowdsource-service:8000"
+
     # SRS REQ-SHOP-1: at most 10 photos per shop.
     max_shop_photos: int = 10
     # SRS REQ-CROWD-3: trust score = average of ratings from the last 90 days.

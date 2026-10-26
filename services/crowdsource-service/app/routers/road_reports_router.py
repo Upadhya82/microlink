@@ -91,13 +91,17 @@ async def update_road_report_status(
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Road report not found")
 
+    # Only a real change of status may move the reporter's trust score --
+    # see the same guard in shop_reports_router for what repeating it cost.
+    previous_status = report.status
     report.status = RoadReportStatus(payload.status)
     db.commit()
     db.refresh(report)
 
-    trust.adjust_on_moderation(
-        db, report.reporter_id, approved=payload.status in ("verified", "resolved")
-    )
+    if previous_status != report.status:
+        trust.adjust_on_moderation(
+            db, report.reporter_id, approved=payload.status in ("verified", "resolved")
+        )
 
     await publish_event(
         "road_report.status_changed", {"report_id": report.id, "status": report.status.value}

@@ -44,6 +44,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-microlink}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}@postgres:5432/shop_db
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
+      # Asked for a confirmer's trust score before their confirmation counts
+      # towards verifying a shop. Deliberately not a depends_on: the call is
+      # best effort, and a confirmation is still gated on a verified account
+      # and on proximity if this service cannot be reached.
+      CROWDSOURCE_SERVICE_URL: http://crowdsource-service:8000
     depends_on:
       postgres:
         condition: service_healthy

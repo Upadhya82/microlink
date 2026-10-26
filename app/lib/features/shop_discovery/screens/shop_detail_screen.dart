@@ -20,6 +20,7 @@ import '../../../core/widgets/rating_chip.dart';
 import '../../orders/cart_controller.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../shop_discovery_support.dart';
+import '../widgets/shop_confirmation_card.dart';
 import '../../../core/widgets/branded_app_bar.dart';
 
 /// Everything the Shop Detail screen needs, loaded together so the whole
@@ -312,6 +313,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
           onCopyPhone: _copyPhone,
           onRate: _rateShop,
           onReply: _replyToReview,
+          onReload: _fetchAll,
         ),
       ),
     );
@@ -353,6 +355,10 @@ class _ShopDetailBody extends StatelessWidget {
   final VoidCallback onRate;
   final ValueChanged<ReviewEntry> onReply;
 
+  /// Reloads the page. Used when a confirmation verifies the shop, so the
+  /// "not verified" chip and the confirmation card both go away at once.
+  final Future<void> Function() onReload;
+
   const _ShopDetailBody({
     required this.data,
     required this.stockFilter,
@@ -361,6 +367,7 @@ class _ShopDetailBody extends StatelessWidget {
     required this.onCopyPhone,
     required this.onRate,
     required this.onReply,
+    required this.onReload,
   });
 
   @override
@@ -484,6 +491,20 @@ class _ShopDetailBody extends StatelessWidget {
                       ),
                   ],
                 ),
+                // An unverified shop no admin has reached yet: the customers
+                // near it can verify it themselves. Hidden offline, where
+                // the confirmation could not be sent, and hidden from the
+                // owner, who is not allowed to vouch for their own shop.
+                if (!offline && !isOwner && extras.acceptsConfirmations) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  ShopConfirmationCard(
+                    shopId: shop.id,
+                    shopName: shop.name,
+                    confirmations: extras.communityConfirmations,
+                    required: extras.confirmationsRequired,
+                    onVerified: onReload,
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.md),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
