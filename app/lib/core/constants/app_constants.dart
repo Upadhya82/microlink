@@ -30,6 +30,11 @@ class AppConstants {
   static const String userNameKey = 'microlink_user_name';
   static const String themeModeKey = 'microlink_theme_mode';
 
+  /// Whether spoken turn-by-turn guidance is on. Remembered across trips:
+  /// someone who drives with the sound off means it for every trip, not
+  /// just the one where they reached for the button.
+  static const String voiceGuidanceKey = 'microlink_voice_guidance';
+
   static const Duration requestTimeout = Duration(seconds: 15);
 
   /// A product needs this many units before customers can see it.
