@@ -124,6 +124,15 @@ class Product {
   /// Server-relative path to the product photo, or null when there is none.
   final String? imageUrl;
 
+  /// Hidden from customers. Set by shop-service when a customer buys the
+  /// last item ([hiddenReason] `sold_out`); only the owner can unhide it.
+  /// Customers never receive hidden products, so this is only ever true on
+  /// the owner's and admin's screens.
+  final bool isHidden;
+
+  /// Why [isHidden] is set: `sold_out` or `owner`. Null when not hidden.
+  final String? hiddenReason;
+
   const Product({
     required this.id,
     required this.shopId,
@@ -136,15 +145,33 @@ class Product {
     this.discountPercent = 0,
     double? finalPrice,
     this.imageUrl,
+    this.isHidden = false,
+    this.hiddenReason,
   }) : finalPrice = finalPrice ?? price;
 
   bool get hasDiscount => discountPercent > 0;
 
-  /// True when customers cannot see this product: shop-service only lists
-  /// products with at least [AppConstants.minListableStock] in stock. The
-  /// owner still sees it, so it can be restocked.
+  /// True when customers cannot see this product: it is hidden (its last
+  /// item sold), or it has nothing in stock. The owner still sees it, so it
+  /// can be restocked and unhidden.
   bool get isHiddenFromCustomers =>
-      stockQuantity < AppConstants.minListableStock;
+      isHidden || stockQuantity < AppConstants.minListableStock;
+
+  /// The badge the owner sees on a product customers cannot see, or null.
+  String? get hiddenLabel {
+    if (isHidden && hiddenReason == 'sold_out') return 'Hidden: sold out';
+    if (isHidden) return 'Hidden from customers';
+    if (stockQuantity < AppConstants.minListableStock) return 'Hidden: no stock';
+    return null;
+  }
+
+  /// How many a customer can still buy, for the checkout: "12 available",
+  /// "Only 1 left" or "Out of stock".
+  String get availabilityLabel {
+    if (stockQuantity <= 0 || !isAvailable) return 'Out of stock';
+    if (stockQuantity == 1) return 'Only 1 left';
+    return '$stockQuantity available';
+  }
 
   /// What the customer saves, for the "you save Rs.X" line.
   double get savings => price - finalPrice;
@@ -162,6 +189,8 @@ class Product {
       discountPercent: (json['discount_percent'] as num?)?.toInt() ?? 0,
       finalPrice: (json['final_price'] as num?)?.toDouble(),
       imageUrl: json['image_url'] as String?,
+      isHidden: json['is_hidden'] as bool? ?? false,
+      hiddenReason: json['hidden_reason'] as String?,
     );
   }
 }

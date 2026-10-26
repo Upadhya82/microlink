@@ -155,6 +155,7 @@ class AdReviewUpdateRequest(BaseModel):
 
 class AdStatusUpdateRequest(BaseModel):
     status: Literal["pending", "approved", "rejected"]
+    reason: str | None = None
 
 
 class AdResponse(BaseModel):

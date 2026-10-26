@@ -92,6 +92,9 @@ _COLUMN_MIGRATIONS: list[str] = [
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_percent INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS image BYTEA",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS has_image BOOLEAN NOT NULL DEFAULT FALSE",
+    # products: hidden after the last item sells, until the owner unhides it
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS hidden_reason VARCHAR(20)",
 ]
 
 

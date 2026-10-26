@@ -22,6 +22,18 @@ class InternalPathTests(unittest.TestCase):
         ):
             self.assertTrue(_is_internal(path), path)
 
+    def test_internal_lookups_are_blocked(self):
+        for path in (
+            "users/internal/names",
+            "users/internal/by-phone",
+            "delivery/internal/known-locations",
+        ):
+            self.assertTrue(_is_internal(path), path)
+
+    def test_ordinary_delivery_paths_still_go_through(self):
+        for path in ("delivery/orders", "delivery/orders/me", "delivery/agents"):
+            self.assertFalse(_is_internal(path), path)
+
     def test_the_app_prefix_is_stripped_before_the_check(self):
         # The app calls /api/<path>; the block has to apply there too.
         self.assertTrue(_is_internal(_strip_api_prefix("api/shops/abc/stock/reserve")))

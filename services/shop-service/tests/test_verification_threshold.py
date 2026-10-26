@@ -14,7 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import listings, logic
+from app import listings, logic, stock_alerts
 from app.config import settings
 from app.database import Base, get_db
 from app.models import Product, Shop, ShopCategory
@@ -70,6 +70,7 @@ class VerificationThresholdTests(unittest.TestCase):
             "shops_notify": shops_router.notify_users,
             "shops_publish": shops_router.publish_event,
             "listings_notify": listings.notify_users,
+            "stock_alerts_notify": stock_alerts.notify_users,
         }
 
         async def quiet(*args, **kwargs):
@@ -83,6 +84,9 @@ class VerificationThresholdTests(unittest.TestCase):
         shops_router.notify_users = quiet
         shops_router.publish_event = quiet
         listings.notify_users = record
+        # The per-product sold-out / low-stock alerts are covered in
+        # test_stock_reservations.py; here only the shop-level warning counts.
+        stock_alerts.notify_users = quiet
 
         session = self.Session()
         for shop_id in (SHOP_ID, OTHER_SHOP_ID):
@@ -103,6 +107,7 @@ class VerificationThresholdTests(unittest.TestCase):
         shops_router.notify_users = self.originals["shops_notify"]
         shops_router.publish_event = self.originals["shops_publish"]
         listings.notify_users = self.originals["listings_notify"]
+        stock_alerts.notify_users = self.originals["stock_alerts_notify"]
         self.engine.dispose()
 
     # --- helpers ---
@@ -166,10 +171,10 @@ class VerificationThresholdTests(unittest.TestCase):
     def test_a_shop_with_no_products_is_refused(self):
         self.assertEqual(self._verify().status_code, 409)
 
-    def test_products_below_the_stock_threshold_do_not_count(self):
-        # Five products, but one has only four units: that is four listable.
+    def test_products_with_no_stock_do_not_count(self):
+        # Five products, but one has nothing left: that is four listable.
         self._products(4, quantity=10)
-        self._products(1, quantity=4)
+        self._products(1, quantity=0)
         response = self._verify()
         self.assertEqual(response.status_code, 409)
         self.assertIn("it has 4", response.json()["detail"])
@@ -200,13 +205,13 @@ class VerificationThresholdTests(unittest.TestCase):
     # --- the count in the response ---
     def test_the_response_reports_the_listable_count(self):
         self._products(3, quantity=10)
-        self._products(2, quantity=2)
+        self._products(2, quantity=0)
         response = self.client.get("/shops", params={"limit": 50})
         card = next(item for item in response.json() if item["id"] == SHOP_ID)
         self.assertEqual(card["listable_product_count"], 3)
 
     def test_the_count_is_zero_for_a_shop_with_nothing_listable(self):
-        self._products(2, quantity=1)
+        self._products(2, quantity=0)
         response = self.client.get("/shops", params={"limit": 50})
         card = next(item for item in response.json() if item["id"] == SHOP_ID)
         self.assertEqual(card["listable_product_count"], 0)
@@ -217,10 +222,10 @@ class VerificationThresholdTests(unittest.TestCase):
         self._verify()
         self.notifications.clear()
 
-        # Sell one product down below the listing threshold.
+        # Take one product down to nothing in stock.
         self.client.patch(
             f"/shops/{SHOP_ID}/products/{ids[0]}",
-            json={"stock_quantity": 1},
+            json={"stock_quantity": 0},
             headers=_auth(OWNER_ID, "shop_owner"),
         )
         self.assertEqual(len(self.notifications), 1)
@@ -231,7 +236,7 @@ class VerificationThresholdTests(unittest.TestCase):
         # A second drop must not warn again.
         self.client.patch(
             f"/shops/{SHOP_ID}/products/{ids[1]}",
-            json={"stock_quantity": 1},
+            json={"stock_quantity": 0},
             headers=_auth(OWNER_ID, "shop_owner"),
         )
         self.assertEqual(len(self.notifications), 1)
@@ -243,20 +248,20 @@ class VerificationThresholdTests(unittest.TestCase):
 
         headers = _auth(OWNER_ID, "shop_owner")
         url = f"/shops/{SHOP_ID}/products/{ids[0]}"
-        self.client.patch(url, json={"stock_quantity": 1}, headers=headers)
+        self.client.patch(url, json={"stock_quantity": 0}, headers=headers)
         self.assertEqual(len(self.notifications), 1)
 
         self.client.patch(url, json={"stock_quantity": 20}, headers=headers)
         self.assertIsNone(self._shop().low_product_warning_at)
 
-        self.client.patch(url, json={"stock_quantity": 1}, headers=headers)
+        self.client.patch(url, json={"stock_quantity": 0}, headers=headers)
         self.assertEqual(len(self.notifications), 2)
 
     def test_an_unverified_shop_is_not_nagged(self):
         ids = self._products(settings.min_products_to_verify)
         self.client.patch(
             f"/shops/{SHOP_ID}/products/{ids[0]}",
-            json={"stock_quantity": 1},
+            json={"stock_quantity": 0},
             headers=_auth(OWNER_ID, "shop_owner"),
         )
         self.assertEqual(self.notifications, [])

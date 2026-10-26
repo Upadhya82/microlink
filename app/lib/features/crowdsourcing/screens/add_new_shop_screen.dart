@@ -32,6 +32,7 @@ class _AddNewShopScreenState extends State<AddNewShopScreen> {
   final _nameController = TextEditingController();
   final _addressController = TextEditingController();
   final _descController = TextEditingController();
+  final _phoneController = TextEditingController();
   PickedFile? _photo;
 
   String? _category;
@@ -44,11 +45,15 @@ class _AddNewShopScreenState extends State<AddNewShopScreen> {
   bool _isSubmitting = false;
   bool _success = false;
 
+  /// Whether the last suggestion skipped the neighbour check (see _submit).
+  bool _fastTrack = false;
+
   @override
   void dispose() {
     _nameController.dispose();
     _addressController.dispose();
     _descController.dispose();
+    _phoneController.dispose();
 
     super.dispose();
   }
@@ -112,26 +117,29 @@ class _AddNewShopScreenState extends State<AddNewShopScreen> {
           .showSnackBar(const SnackBar(content: Text('Set the shop location.')));
       return;
     }
-    if (_openingTime == null || _closingTime == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Set opening and closing hours.')));
-      return;
-    }
-
     setState(() => _isSubmitting = true);
     try {
+      final payload = <String, dynamic>{
+        'shop_name': _nameController.text.trim(),
+        'category': _category,
+        'address': _addressController.text.trim(),
+        'latitude': _latitude,
+        'longitude': _longitude,
+        'description': _descController.text.trim(),
+      };
+      if (_openingTime != null) {
+        payload['opening_time'] = _formatTime24(_openingTime!);
+      }
+      if (_closingTime != null) {
+        payload['closing_time'] = _formatTime24(_closingTime!);
+      }
+      if (_phoneController.text.trim().isNotEmpty) {
+        payload['phone'] = _phoneController.text.trim();
+      }
+
       final created = await ApiClient.instance.post(
         '/crowdsource/shop-reports',
-        body: {
-          'shop_name': _nameController.text.trim(),
-          'category': _category,
-          'address': _addressController.text.trim(),
-          'latitude': _latitude,
-          'longitude': _longitude,
-          'description': _descController.text.trim(),
-          'opening_time': _formatTime24(_openingTime!),
-          'closing_time': _formatTime24(_closingTime!),
-        },
+        body: payload,
       ) as Map<String, dynamic>;
 
       // Separate call: the report is already saved, so a failed photo
@@ -154,7 +162,11 @@ class _AddNewShopScreenState extends State<AddNewShopScreen> {
         }
       }
       if (!mounted) return;
-      setState(() => _success = true);
+      setState(() {
+        _success = true;
+        // The phone belongs to a MicroLink user: it went straight to the admins.
+        _fastTrack = created['fast_track'] == true;
+      });
     } on ApiException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
@@ -167,6 +179,7 @@ class _AddNewShopScreenState extends State<AddNewShopScreen> {
     _nameController.clear();
     _addressController.clear();
     _descController.clear();
+    _phoneController.clear();
     _photo = null;
     setState(() {
       _category = null;
@@ -276,12 +289,20 @@ class _AddNewShopScreenState extends State<AddNewShopScreen> {
               maxLines: 3,
               validator: (v) => Validators.required(v, field: 'Description'),
             ),
+            const SizedBox(height: AppSpacing.md),
+            AppTextField(
+              controller: _phoneController,
+              label: 'Shop owner phone number',
+              isRequired: false,
+              hint: 'e.g. 0771234567 (optional)',
+              keyboardType: TextInputType.phone,
+            ),
             const SizedBox(height: AppSpacing.lg),
             Row(
               children: [
                 Expanded(
                   child: _TimeField(
-                    label: 'Opens',
+                    label: 'Opens (Optional)',
                     time: _openingTime,
                     onTap: () => _pickTime(isOpening: true),
                   ),
@@ -289,7 +310,7 @@ class _AddNewShopScreenState extends State<AddNewShopScreen> {
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: _TimeField(
-                    label: 'Closes',
+                    label: 'Closes (Optional)',
                     time: _closingTime,
                     onTap: () => _pickTime(isOpening: false),
                   ),
@@ -328,7 +349,11 @@ class _AddNewShopScreenState extends State<AddNewShopScreen> {
               Icon(Icons.check_circle, size: 56, color: colors.success),
               const SizedBox(height: AppSpacing.lg),
               Text(
-                'Thanks! Our team will review your suggestion.',
+                _fastTrack
+                    ? 'Thanks! This phone number belongs to a MicroLink user, so your '
+                        'suggestion went straight to our admin team for review.'
+                    : 'Thanks! People nearby have been asked to confirm this shop, '
+                        'and our team will review your suggestion.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleMedium,
               ),

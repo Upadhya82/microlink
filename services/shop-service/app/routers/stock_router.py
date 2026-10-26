@@ -24,7 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app import listings, logic
+from app import listings, logic, stock_alerts
 from app.config import settings
 from app.database import get_db
 from app.models import Product, Shop, StockReservation
@@ -111,6 +111,9 @@ async def reserve_stock(
                 Product.shop_id == shop_id,
                 Product.stock_quantity >= quantity,
                 Product.stock_status != "out_of_stock",
+                # A product the owner has hidden cannot be ordered, even
+                # from a cart filled before it was hidden.
+                Product.is_hidden.is_(False),
             )
             .values(stock_quantity=Product.stock_quantity - quantity)
         )
@@ -118,12 +121,14 @@ async def reserve_stock(
             # Deleted, out of stock, another shop's product, or somebody else
             # took the last units a moment ago. Say which, by name.
             row = db.execute(
-                select(Product.name, Product.stock_quantity, Product.shop_id).where(
-                    Product.id == product_id
-                )
+                select(
+                    Product.name, Product.stock_quantity, Product.shop_id, Product.is_hidden
+                ).where(Product.id == product_id)
             ).first()
             if row is None or row.shop_id != shop_id:
                 short.append(f"a product that is no longer sold here (asked {quantity})")
+            elif row.is_hidden:
+                short.append(f"{row.name} (no longer available)")
             else:
                 short.append(
                     f"{row.name} (asked {quantity}, {row.stock_quantity} left)"
@@ -147,16 +152,25 @@ async def reserve_stock(
         )
 
     db.flush()
-    for product_id in wanted:
+    # (name, units left, "sold_out" | "low_stock") for the owner, sent after
+    # the commit so a notification never describes a sale that rolled back.
+    alerts: list[tuple[str, int, str]] = []
+    for product_id, quantity in wanted.items():
         product = db.get(Product, product_id)
         if product is not None:
             db.refresh(product)
             _restate_stock(db, product)
+            # Selling the last item hides the product; dropping to the
+            # low-stock line warns the owner.
+            alert = stock_alerts.after_sale(product, quantity)
+            if alert is not None:
+                alerts.append((product.name, product.stock_quantity, alert))
     db.commit()
 
     logger.info(
         "Reserved stock for order %s at shop %s: %s", payload.order_id, shop_id, wanted
     )
+    await stock_alerts.notify_owner(db.get(Shop, shop_id), alerts)
     # Item 10: the sale may have taken the shop below the number of products
     # customers can see.
     await listings.review_product_count(db, db.get(Shop, shop_id))
@@ -202,6 +216,9 @@ async def release_stock(
         if product is not None:
             db.refresh(product)
             _restate_stock(db, product)
+            # The order that sold the last item was cancelled: it is back on
+            # the shelf, so it comes back into view.
+            stock_alerts.after_release(product)
     db.commit()
 
     logger.info(

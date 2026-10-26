@@ -1010,7 +1010,8 @@ class _ProductRow extends StatelessWidget {
                     Text(
                       stockLabel(
                         entry.stockStatus,
-                        quantity: entry.stockStatus == 'low_stock' ? product.stockQuantity : null,
+                        // Every product shows how many are left, down to 1.
+                        quantity: product.stockQuantity > 0 ? product.stockQuantity : null,
                       ),
                       style: textTheme.bodySmall?.copyWith(color: color, fontWeight: FontWeight.w600),
                     ),

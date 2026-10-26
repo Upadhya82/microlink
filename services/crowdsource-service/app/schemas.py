@@ -41,6 +41,7 @@ class RoadConditionReportCreateRequest(BaseModel):
 
 class RoadConditionReportStatusUpdateRequest(BaseModel):
     status: Literal["verified", "resolved", "rejected"]
+    reason: str | None = None
 
 
 class RoadConditionReportResponse(BaseModel):
@@ -70,10 +71,14 @@ class NewShopReportCreateRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     description: str = Field(default="", max_length=2000)
+    phone: str | None = Field(default=None, max_length=30)
+    opening_time: str | None = Field(default=None, max_length=10)
+    closing_time: str | None = Field(default=None, max_length=10)
 
 
 class NewShopReportStatusUpdateRequest(BaseModel):
     status: Literal["approved", "rejected"]
+    reason: str | None = None
 
 
 class NewShopReportResponse(BaseModel):
@@ -87,6 +92,9 @@ class NewShopReportResponse(BaseModel):
     latitude: float
     longitude: float
     description: str
+    phone: str | None = None
+    opening_time: str | None = None
+    closing_time: str | None = None
     status: ShopReportStatus
     has_photo: bool = False
     # One field for the app to read, whether or not a photo was uploaded.
@@ -98,8 +106,49 @@ class NewShopReportResponse(BaseModel):
     confirmations: int = 0
     confirmed_ratio: float = 0.0
     is_confirmed: bool = False
+    comments: list[str] = []
+    comments_detail: list[dict] = []
+    # The phone number belongs to this MicroLink account, so the suggestion
+    # went straight to the admins (fast_track) without asking neighbours.
+    phone_user_id: str | None = None
+    phone_user_name: str | None = None
+    fast_track: bool = False
     created_at: datetime
     updated_at: datetime
+
+    @model_validator(mode="after")
+    def _derive_photo_path(self):
+        if self.has_photo:
+            self.photo_path = f"/crowdsource/shop-reports/{self.id}/photo"
+        self.fast_track = bool(self.phone_user_id)
+        return self
+
+
+class ApprovedSuggestionResponse(BaseModel):
+    """A user-suggested shop an admin approved, for the "User Suggestions" rail on Home.
+
+    Deliberately leaves out who suggested it and what neighbours commented:
+    every customer sees this list, and those belong to the moderation desk.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    shop_name: str
+    category: str
+    address: str
+    latitude: float
+    longitude: float
+    description: str
+    phone: str | None = None
+    opening_time: str | None = None
+    closing_time: str | None = None
+    has_photo: bool = False
+    photo_path: str | None = None
+    # When the admin approved it (the report's last change was the approval).
+    approved_at: datetime
+    # Set when the app sent its location.
+    distance_km: float | None = None
 
     @model_validator(mode="after")
     def _derive_photo_path(self):
@@ -155,6 +204,7 @@ class ShopCorrectionCreateRequest(BaseModel):
 
 class ShopCorrectionStatusRequest(BaseModel):
     status: Literal["approved", "rejected"]
+    reason: str | None = None
 
 
 class ShopCorrectionResponse(BaseModel):
@@ -173,3 +223,4 @@ class ShopReportConfirmRequest(BaseModel):
     """One person's answer about a reported shop."""
 
     confirms: bool
+    comment: str | None = Field(default=None, max_length=500)

@@ -7,6 +7,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/list_filter_bar.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../widgets/admin_document_row.dart';
 
@@ -65,6 +66,8 @@ class _VerifiableUser {
 class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveClientMixin {
   ViewState<List<_VerifiableUser>> _state = const ViewLoading();
   bool _showPending = true;
+  String _role = 'all';
+  String _query = '';
   String? _verifyingId;
 
   // Each user's documents, fetched the first time the admin opens them --
@@ -107,6 +110,13 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
           .where((u) => u.role == 'shop_owner' || u.role == 'delivery_agent')
           .where((u) => !_showPending || u.isActive)
           .toList();
+      if (_showPending) {
+        items.sort((a, b) {
+          final da = a.createdAt ?? DateTime.now();
+          final db = b.createdAt ?? DateTime.now();
+          return da.compareTo(db);
+        });
+      }
       if (!mounted || requestId != _requestId) return;
       setState(() => _state = ViewData(items));
     } on ApiException catch (e) {
@@ -246,8 +256,33 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
                   ? 'New shop owner and delivery agent sign-ups waiting for approval appear here.'
                   : 'Verified shop owners and delivery agents appear here.',
               emptyIcon: Icons.verified_user_outlined,
-              builder: (context, items) {
-                return ListView.separated(
+              builder: (context, allItems) {
+                final items = allItems.where((user) {
+                  if (_role != 'all' && user.role != _role) return false;
+                  return matchesQuery(_query, [user.fullName, user.email, user.phone]);
+                }).toList();
+                return Column(
+                  children: [
+                    ListFilterBar<String>(
+                      searchHint: 'Search name, email or phone',
+                      onSearchChanged: (value) => setState(() => _query = value),
+                      options: [
+                        FilterOption('all', 'All', count: allItems.length),
+                        FilterOption('shop_owner', 'Shop owners',
+                            count: allItems.where((u) => u.role == 'shop_owner').length),
+                        FilterOption('delivery_agent', 'Delivery agents',
+                            count: allItems.where((u) => u.role == 'delivery_agent').length),
+                      ],
+                      selected: _role,
+                      onSelected: (value) => setState(() => _role = value),
+                    ),
+                    if (items.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(AppSpacing.xl),
+                        child: Text('No accounts match this filter.'),
+                      ),
+                    Expanded(
+                      child: ListView.separated(
                   padding: const EdgeInsets.all(AppSpacing.lg),
                   itemCount: items.length,
                   separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
@@ -292,9 +327,17 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
                           ),
                           if (user.createdAt != null) ...[
                             const SizedBox(height: AppSpacing.sm),
-                            Text(
-                              'Joined ${_joined(user.createdAt!)}',
-                              style: textTheme.bodySmall?.copyWith(color: appColors.textSecondary),
+                            Row(
+                              children: [
+                                Text(
+                                  'Applied ${_joined(user.createdAt!)}',
+                                  style: textTheme.bodySmall?.copyWith(color: appColors.textSecondary),
+                                ),
+                                if (_showPending) ...[
+                                  const Spacer(),
+                                  _buildDelayBadge(context, user.createdAt!),
+                                ],
+                              ],
                             ),
                           ],
                           const SizedBox(height: AppSpacing.sm),
@@ -332,12 +375,52 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
                       ),
                     );
                   },
+                ),
+                    ),
+                  ],
                 );
               },
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildDelayBadge(BuildContext context, DateTime createdAt) {
+    final diff = DateTime.now().difference(createdAt);
+    final isDelayed = diff.inHours >= 24;
+    final waitText = diff.inDays > 0
+        ? '${diff.inDays}d waiting'
+        : (diff.inHours > 0 ? '${diff.inHours}h waiting' : '${diff.inMinutes}m waiting');
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: isDelayed ? Colors.red.shade50 : Colors.amber.shade50,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: isDelayed ? Colors.red.shade400 : Colors.amber.shade400,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isDelayed ? Icons.warning_amber_rounded : Icons.schedule,
+            size: 13,
+            color: isDelayed ? Colors.red.shade700 : Colors.amber.shade800,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            isDelayed ? 'Delayed: $waitText' : waitText,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: isDelayed ? Colors.red.shade800 : Colors.amber.shade900,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

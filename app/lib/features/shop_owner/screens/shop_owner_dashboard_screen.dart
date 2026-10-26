@@ -13,6 +13,11 @@ import '../../../core/network/session_manager.dart';
 import '../../../core/theme/app_colors_extension.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../location/widgets/location_field.dart';
+import '../../../core/widgets/list_filter_bar.dart';
+import '../../../core/widgets/order_filters.dart';
+import '../widgets/owner_filters.dart';
+import '../widgets/product_category_field.dart';
+import '../widgets/shop_performance_section.dart';
 import '../../../core/utils/media_url.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/utils/route_args.dart';
@@ -431,7 +436,9 @@ class _ShopFormSheetState extends State<_ShopFormSheet> {
     if (formState == null || !formState.validate()) return;
     if (_openingTime == null || _closingTime == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select an opening and closing time.')),
+        const SnackBar(
+          content: Text('Select your usual opening and closing hours.'),
+        ),
       );
       return;
     }
@@ -578,24 +585,18 @@ class _ShopFormSheetState extends State<_ShopFormSheet> {
                     keyboardType: TextInputType.url,
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildTimeField(
-                          'Opening time',
-                          _openingTime,
-                          (value) => setState(() => _openingTime = value),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: _buildTimeField(
-                          'Closing time',
-                          _closingTime,
-                          (value) => setState(() => _closingTime = value),
-                        ),
-                      ),
-                    ],
+                  // One under the other: side by side, the longer labels
+                  // were cut off on a phone.
+                  _buildTimeField(
+                    'Usual Opening Hours',
+                    _openingTime,
+                    (value) => setState(() => _openingTime = value),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _buildTimeField(
+                    'Usual Closing Hours',
+                    _closingTime,
+                    (value) => setState(() => _closingTime = value),
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   Text(
@@ -1135,6 +1136,8 @@ class _ProductsTab extends StatefulWidget {
 
 class _ProductsTabState extends State<_ProductsTab> {
   ViewState<List<Product>> _state = const ViewLoading();
+  String _filter = 'all';
+  String _query = '';
 
   @override
   void initState() {
@@ -1200,6 +1203,43 @@ class _ProductsTabState extends State<_ProductsTab> {
     }
   }
 
+  /// Shows a hidden product to customers again.
+  ///
+  /// A product hidden because its last item sold has nothing in stock, and
+  /// shop-service refuses to unhide an empty product, so the owner is asked
+  /// how many they have now and the restock and unhide go in one request.
+  Future<void> _unhide(Product product) async {
+    final body = <String, dynamic>{'is_hidden': false};
+    if (product.stockQuantity < AppConstants.minListableStock) {
+      final quantity = await _askRestockQuantity(product);
+      if (quantity == null) return;
+      body['stock_quantity'] = quantity;
+    }
+    try {
+      await ApiClient.instance.patch(
+        '/shops/${widget.shopId}/products/${product.id}',
+        body: body,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${product.name} is visible to customers again.')),
+      );
+      _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  /// Asks how many of [product] the owner has now. Null when cancelled.
+  Future<int?> _askRestockQuantity(Product product) {
+    return showDialog<int>(
+      context: context,
+      builder: (_) => _RestockDialog(productName: product.name),
+    );
+  }
+
   Future<void> _toggleAvailability(Product product, bool value) async {
     try {
       await ApiClient.instance.patch(
@@ -1246,7 +1286,28 @@ class _ProductsTabState extends State<_ProductsTab> {
               emptyMessage: 'Add products so customers know what you sell.',
               emptyIcon: Icons.inventory_2_outlined,
               loadingSkeleton: const SkeletonList(itemCount: 4, itemHeight: 90),
-              builder: (context, products) => ListView.separated(
+              builder: (context, allProducts) {
+                final products = filterOwnerProducts(
+                  allProducts,
+                  filter: _filter,
+                  query: _query,
+                );
+                return Column(
+                  children: [
+                    ListFilterBar<String>(
+                      searchHint: 'Search your products',
+                      onSearchChanged: (value) => setState(() => _query = value),
+                      options: ownerProductFilterOptions(allProducts),
+                      selected: _filter,
+                      onSelected: (value) => setState(() => _filter = value),
+                    ),
+                    if (products.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(AppSpacing.xl),
+                        child: Text('No products match this filter.'),
+                      ),
+                    Expanded(
+                      child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(
                   AppSpacing.lg,
                   AppSpacing.lg,
@@ -1280,15 +1341,28 @@ class _ProductsTabState extends State<_ProductsTab> {
                                       color: context.appColors.textSecondary,
                                     ),
                               ),
-                              if (product.isHiddenFromCustomers) ...[
+                              if (product.hiddenLabel != null) ...[
                                 const SizedBox(height: AppSpacing.xs),
                                 StatusBadge(
-                                  label:
-                                      'Hidden: under '
-                                      '${AppConstants.minListableStock} in stock',
+                                  label: product.hiddenLabel!,
                                   background: context.appColors.warning
                                       .withValues(alpha: 0.14),
                                   foreground: context.appColors.warning,
+                                ),
+                              ],
+                              if (product.isHidden) ...[
+                                const SizedBox(height: AppSpacing.xs),
+                                TextButton.icon(
+                                  onPressed: () => _unhide(product),
+                                  icon: const Icon(
+                                    Icons.visibility_outlined,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Unhide'),
+                                  style: TextButton.styleFrom(
+                                    padding: EdgeInsets.zero,
+                                    visualDensity: VisualDensity.compact,
+                                  ),
                                 ),
                               ],
                             ],
@@ -1312,9 +1386,75 @@ class _ProductsTabState extends State<_ProductsTab> {
                     ),
                   );
                 },
-              ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Asks a shop owner how many of a sold-out product they have now, so it can
+/// be restocked and unhidden in one step. Pops the quantity, or null.
+class _RestockDialog extends StatefulWidget {
+  final String productName;
+  const _RestockDialog({required this.productName});
+
+  @override
+  State<_RestockDialog> createState() => _RestockDialogState();
+}
+
+class _RestockDialogState extends State<_RestockDialog> {
+  final _controller = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_formKey.currentState?.validate() != true) return;
+    Navigator.pop(context, int.parse(_controller.text.trim()));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Restock ${widget.productName}'),
+      content: Form(
+        key: _formKey,
+        child: TextFormField(
+          controller: _controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'How many do you have now?',
+          ),
+          validator: (value) {
+            final parsed = int.tryParse(value?.trim() ?? '');
+            if (parsed == null || parsed < AppConstants.minListableStock) {
+              return 'Enter at least ${AppConstants.minListableStock}';
+            }
+            return null;
+          },
+          onFieldSubmitted: (_) => _submit(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Restock & Unhide'),
         ),
       ],
     );
@@ -1493,17 +1633,15 @@ class _ProductFormSheetState extends State<_ProductFormSheet> {
                     isRequired: true,
                     keyboardType: TextInputType.number,
                     helperText:
-                        'Customers only see products with at least '
-                        '${AppConstants.minListableStock} in stock.',
+                        'Customers can order down to the last item. When '
+                        'the last one sells, the product is hidden until '
+                        'you unhide it.',
                     validator: _validateStock,
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  AppTextField(
-                    controller: _categoryController,
-                    label: 'Category',
-                    isRequired: true,
-                    validator: (v) => Validators.required(v, field: 'Category'),
-                  ),
+                  // Predefined categories plus "Others"; writes the chosen
+                  // value into _categoryController, which _submit sends.
+                  ProductCategoryField(controller: _categoryController),
                   const SizedBox(height: AppSpacing.md),
                   _ProductPhotoPicker(
                     picked: _pickedImage,
@@ -1786,6 +1924,9 @@ class _AnalyticsTab extends StatefulWidget {
 class _AnalyticsTabState extends State<_AnalyticsTab> {
   ViewState<_ShopAnalytics> _state = const ViewLoading();
 
+  /// Bumped on every pull-to-refresh so "Performance over time" reloads too.
+  int _reloads = 0;
+
   @override
   void initState() {
     super.initState();
@@ -1793,7 +1934,10 @@ class _AnalyticsTabState extends State<_AnalyticsTab> {
   }
 
   Future<void> _load() async {
-    setState(() => _state = const ViewLoading());
+    setState(() {
+      _state = const ViewLoading();
+      _reloads++;
+    });
     try {
       final response = await ApiClient.instance.get(
         '/shops/${widget.shopId}/analytics',
@@ -1860,6 +2004,11 @@ class _AnalyticsTabState extends State<_AnalyticsTab> {
                       style: TextStyle(color: context.appColors.textSecondary),
                     )
                   : _ViewsBarChart(data: analytics.viewsLast7Days),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            ShopPerformanceSection(
+              key: ValueKey('performance-$_reloads'),
+              shopId: widget.shopId,
             ),
           ],
         ),
@@ -2175,6 +2324,8 @@ class _OrdersTab extends StatefulWidget {
 }
 
 class _OrdersTabState extends State<_OrdersTab> {
+  String _group = 'all';
+  String _query = '';
   ViewState<List<DeliveryOrder>> _state = const ViewLoading();
   Timer? _poll;
 
@@ -2226,19 +2377,39 @@ class _OrdersTabState extends State<_OrdersTab> {
         builder: (context, orders) {
           // Orders an agent is on the way for come first; the owner is
           // usually opening this tab because someone is at the counter.
-          final sorted = [...orders]..sort((a, b) {
+          final sorted = [
+            ...filterOrders(orders, group: _group, query: _query),
+          ]..sort((a, b) {
               int rank(DeliveryOrder o) => o.status == 'accepted' ? 0 : 1;
               final byRank = rank(a).compareTo(rank(b));
               return byRank != 0 ? byRank : b.createdAt.compareTo(a.createdAt);
             });
-          return ListView.separated(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            itemCount: sorted.length,
-            separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
-            itemBuilder: (context, i) => StaggerIn(
-              index: i,
-              child: _ShopOrderCard(order: sorted[i], onChanged: _load),
-            ),
+          return Column(
+            children: [
+              ListFilterBar<String>(
+                searchHint: 'Search order number, item or address',
+                onSearchChanged: (value) => setState(() => _query = value),
+                options: orderFilterOptions(orders),
+                selected: _group,
+                onSelected: (value) => setState(() => _group = value),
+              ),
+              if (sorted.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(AppSpacing.xl),
+                  child: Text('No orders match this filter.'),
+                ),
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  itemCount: sorted.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
+                  itemBuilder: (context, i) => StaggerIn(
+                    index: i,
+                    child: _ShopOrderCard(order: sorted[i], onChanged: _load),
+                  ),
+                ),
+              ),
+            ],
           );
         },
       ),
@@ -2496,8 +2667,8 @@ class _AwaitingVerificationBanner extends StatelessWidget {
                         ready
                             ? '${shop.productProgressLabel} — ready for review.'
                             : '${shop.productProgressLabel}. A shop needs '
-                                '${AppConstants.minProductsToVerify} products with at '
-                                'least ${AppConstants.minListableStock} in stock each.',
+                                '${AppConstants.minProductsToVerify} products in '
+                                'stock that customers can see.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               fontWeight: FontWeight.w600,
                               color: ready ? colors.success : colors.warning,

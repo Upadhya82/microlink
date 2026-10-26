@@ -103,13 +103,14 @@ async def update_road_report_status(
         "road_report.status_changed", {"report_id": report.id, "status": report.status.value}
     )
     approved = payload.status in ("verified", "resolved")
+    reason_text = f" Reason: {payload.reason}" if payload.reason else ""
     await notify_users(
         [report.reporter_id],
-        "Your road report was published" if approved else "Your road report was reviewed",
+        "Your road report was published" if approved else "Your road report was rejected",
         (
             "Thanks -- other drivers can now see it on the map."
             if approved
-            else "An admin reviewed your report and did not publish it."
+            else f"An admin reviewed your road report and rejected it.{reason_text}"
         ),
         kind="report",
         link={"route": "report", "id": report.id},

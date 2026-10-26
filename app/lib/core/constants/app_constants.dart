@@ -32,10 +32,15 @@ class AppConstants {
 
   static const Duration requestTimeout = Duration(seconds: 15);
 
-  /// A product needs this many units before customers can see it.
-  /// Mirrors shop-service's `min_listable_stock`: the server is what
-  /// enforces the rule, this is only so the forms can say so first.
-  static const int minListableStock = 5;
+  /// A product needs this many units before customers can see it, so
+  /// customers can order right down to the last item. Mirrors
+  /// shop-service's `min_listable_stock`: the server is what enforces the
+  /// rule, this is only so the forms can say so first.
+  static const int minListableStock = 1;
+
+  /// A sale that takes a product down to this many items tells the owner it
+  /// is running low. Mirrors shop-service's `low_stock_threshold`.
+  static const int lowStockThreshold = 5;
 
   /// A shop needs this many listable products before an admin can verify it.
   /// Mirrors shop-service's `min_products_to_verify`.

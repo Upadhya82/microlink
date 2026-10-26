@@ -1,4 +1,7 @@
-"""REQ: a product needs a minimum stock before customers may see it (item 11).
+"""REQ: which products customers may see (item 11, revised).
+
+Customers see a product down to its last item (min_listable_stock = 1).
+Selling that last item hides it until the owner unhides it.
 
 Two layers:
   * `logic.is_listable` on its own, with no database;
@@ -50,16 +53,14 @@ def _auth(user_id: str, role: str) -> dict[str, str]:
 
 
 class IsListableTests(unittest.TestCase):
-    """The rule on its own: 5 is listable, 4 is not, "nothing said" is not."""
+    """The rule on its own: 1 is listable, 0 is not, "nothing said" is not."""
 
     def test_at_or_above_the_minimum_is_listable(self):
-        self.assertTrue(logic.is_listable(5))
-        self.assertTrue(logic.is_listable(6))
+        self.assertTrue(logic.is_listable(1))
+        self.assertTrue(logic.is_listable(4))
         self.assertTrue(logic.is_listable(500))
 
     def test_below_the_minimum_is_not_listable(self):
-        self.assertFalse(logic.is_listable(4))
-        self.assertFalse(logic.is_listable(1))
         self.assertFalse(logic.is_listable(0))
 
     def test_a_missing_quantity_is_not_listable(self):
@@ -70,7 +71,8 @@ class IsListableTests(unittest.TestCase):
         self.assertFalse(logic.is_listable(2, minimum=3))
 
     def test_the_setting_is_separate_from_the_low_stock_label(self):
-        # Exactly 5 is listable, and is still labelled "low stock".
+        # The minimum is one item; 5 is listable and labelled "low stock".
+        self.assertEqual(settings.min_listable_stock, 1)
         self.assertTrue(logic.is_listable(5, settings.min_listable_stock))
         self.assertEqual(
             logic.derive_stock_status(5, settings.low_stock_threshold), "low_stock"
@@ -129,7 +131,7 @@ class ProductListingRuleTests(unittest.TestCase):
             f"/shops/{shop_id}/products", json=body, headers=_auth(OWNER_ID, "shop_owner")
         )
 
-    def _add_product(self, quantity, name="Stored", shop_id=SHOP_ID) -> str:
+    def _add_product(self, quantity, name="Stored", shop_id=SHOP_ID, hidden=False) -> str:
         """Put a product straight into the database, past the create rule."""
         session = self.Session()
         product = Product(
@@ -139,6 +141,8 @@ class ProductListingRuleTests(unittest.TestCase):
             stock_quantity=quantity,
             stock_status=logic.derive_stock_status(quantity, settings.low_stock_threshold),
             is_available=quantity > 0,
+            is_hidden=hidden,
+            hidden_reason="sold_out" if hidden else None,
         )
         session.add(product)
         session.commit()
@@ -155,13 +159,13 @@ class ProductListingRuleTests(unittest.TestCase):
 
     # --- create ---
     def test_create_below_the_minimum_is_refused(self):
-        response = self._create(4)
+        response = self._create(0)
         self.assertEqual(response.status_code, 422)
-        self.assertIn("at least 5", response.json()["detail"])
+        self.assertIn("at least 1", response.json()["detail"])
 
     def test_create_at_the_minimum_is_allowed_and_visible_to_customers(self):
-        self.assertEqual(self._create(5, name="Exactly five").status_code, 201)
-        self.assertIn("Exactly five", self._names())
+        self.assertEqual(self._create(1, name="Just one").status_code, 201)
+        self.assertIn("Just one", self._names())
 
     def test_create_above_the_minimum_is_visible(self):
         self.assertEqual(self._create(6, name="Six").status_code, 201)
@@ -174,17 +178,24 @@ class ProductListingRuleTests(unittest.TestCase):
         self.assertEqual(self._create(0).status_code, 422)
 
     def test_a_refused_create_stores_nothing(self):
-        self._create(4)
+        self._create(0)
         session = self.Session()
         self.assertEqual(session.query(Product).count(), 0)
         session.close()
 
     # --- who sees what ---
+    def test_a_product_with_few_items_left_stays_in_the_customer_list(self):
+        self._add_product(1, name="One left")
+        self._add_product(4, name="Four left")
+        names = self._names()
+        self.assertIn("One left", names)
+        self.assertIn("Four left", names)
+
     def test_a_product_that_falls_below_the_minimum_leaves_the_customer_list(self):
         product_id = self._add_product(5, name="Sells down")
         response = self.client.patch(
             f"/shops/{SHOP_ID}/products/{product_id}",
-            json={"stock_quantity": 4},
+            json={"stock_quantity": 0},
             headers=_auth(OWNER_ID, "shop_owner"),
         )
         self.assertEqual(response.status_code, 200)
@@ -193,7 +204,7 @@ class ProductListingRuleTests(unittest.TestCase):
         self.assertIn("Sells down", self._names(headers=_auth(ADMIN_ID, "admin")))
 
     def test_restocking_brings_the_product_back(self):
-        product_id = self._add_product(4, name="Restocked")
+        product_id = self._add_product(0, name="Restocked")
         self.assertNotIn("Restocked", self._names())
         self.client.patch(
             f"/shops/{SHOP_ID}/products/{product_id}",
@@ -203,18 +214,18 @@ class ProductListingRuleTests(unittest.TestCase):
         self.assertIn("Restocked", self._names())
 
     def test_an_owner_of_another_shop_is_treated_as_a_customer(self):
-        self._add_product(4, name="Hidden")
+        self._add_product(3, name="Hidden", hidden=True)
         self.assertNotIn("Hidden", self._names(headers=_auth("other-owner", "shop_owner")))
 
     def test_a_made_up_query_parameter_does_not_lift_the_filter(self):
-        self._add_product(4, name="Hidden")
+        self._add_product(3, name="Hidden", hidden=True)
         self.assertNotIn(
             "Hidden",
             self._names(headers=_auth(CUSTOMER_ID, "customer"), params={"show_all": "true"}),
         )
 
     def test_an_expired_token_is_refused_rather_than_ignored(self):
-        self._add_product(4, name="Hidden")
+        self._add_product(0, name="Hidden")
         expired = jwt.encode(
             {
                 "sub": CUSTOMER_ID,
@@ -237,23 +248,67 @@ class ProductListingRuleTests(unittest.TestCase):
     # --- shop cards ---
     def test_shop_cards_count_only_listable_products(self):
         self._add_product(9, name="Plenty")
-        self._add_product(5, name="Just enough")
-        self._add_product(4, name="Hidden")
+        self._add_product(5, name="Five left")
+        self._add_product(1, name="One left")
+        self._add_product(4, name="Hidden", hidden=True)
         self._add_product(0, name="Gone")
         response = self.client.get("/shops", params={"limit": 50})
         self.assertEqual(response.status_code, 200)
         card = next(item for item in response.json() if item["id"] == SHOP_ID)
-        self.assertEqual(card["product_count"], 2)
+        self.assertEqual(card["product_count"], 3)
         self.assertEqual(card["in_stock_count"], 1)
-        self.assertEqual(card["low_stock_count"], 1)
+        self.assertEqual(card["low_stock_count"], 2)
         self.assertEqual(card["out_of_stock_count"], 0)
 
     def test_a_shop_whose_products_are_all_hidden_advertises_nothing(self):
-        self._add_product(4)
+        self._add_product(4, hidden=True)
         response = self.client.get("/shops", params={"limit": 50})
         card = next(item for item in response.json() if item["id"] == SHOP_ID)
         self.assertEqual(card["product_count"], 0)
         self.assertEqual(card["availability"], "none")
+
+    # --- hide / unhide ---
+    def _patch(self, product_id, body, user_id=OWNER_ID, role="shop_owner"):
+        return self.client.patch(
+            f"/shops/{SHOP_ID}/products/{product_id}",
+            json=body,
+            headers=_auth(user_id, role),
+        )
+
+    def test_the_owner_still_sees_a_hidden_product_marked_as_hidden(self):
+        self._add_product(0, name="Sold out", hidden=True)
+        self.assertNotIn("Sold out", self._names())
+        response = self.client.get(
+            f"/shops/{SHOP_ID}/products", headers=_auth(OWNER_ID, "shop_owner")
+        )
+        item = next(p for p in response.json() if p["name"] == "Sold out")
+        self.assertTrue(item["is_hidden"])
+        self.assertEqual(item["hidden_reason"], "sold_out")
+
+    def test_restocking_alone_does_not_unhide(self):
+        product_id = self._add_product(0, name="Sold out", hidden=True)
+        self.assertEqual(self._patch(product_id, {"stock_quantity": 10}).status_code, 200)
+        self.assertNotIn("Sold out", self._names())
+
+    def test_unhiding_with_nothing_in_stock_is_refused(self):
+        product_id = self._add_product(0, name="Sold out", hidden=True)
+        response = self._patch(product_id, {"is_hidden": False})
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("Add stock", response.json()["detail"])
+        self.assertNotIn("Sold out", self._names())
+
+    def test_restock_and_unhide_brings_it_back(self):
+        product_id = self._add_product(0, name="Sold out", hidden=True)
+        response = self._patch(product_id, {"stock_quantity": 10, "is_hidden": False})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["is_hidden"])
+        self.assertIn("Sold out", self._names())
+
+    def test_a_customer_cannot_unhide(self):
+        product_id = self._add_product(5, name="Hidden", hidden=True)
+        response = self._patch(product_id, {"is_hidden": False}, CUSTOMER_ID, "customer")
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn("Hidden", self._names())
 
 
 if __name__ == "__main__":

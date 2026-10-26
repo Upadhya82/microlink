@@ -10,6 +10,7 @@ import '../../../core/utils/media_url.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/models/ad.dart';
 import '../../../core/models/shop.dart';
+import '../../../core/models/suggested_shop.dart';
 import '../../../core/models/user.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
@@ -35,6 +36,7 @@ import '../../location/widgets/map_tile_layer.dart';
 import '../../navigation/screens/live_map_screen.dart';
 import '../../notifications/widgets/notification_bell.dart';
 import '../../shop_owner/screens/shop_owner_dashboard_screen.dart';
+import '../widgets/suggested_shop_card.dart';
 
 /// The Home screen. Each role lands on a home built for what they actually do:
 /// customers get the "Explore" shopping home (search, a personalized
@@ -72,6 +74,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _nearbyIsNationwide = false;
   List<Shop> _nearbyShops = const [];
 
+  bool _loadingSuggestions = true;
+  List<SuggestedShop> _userSuggestions = const [];
+
   @override
   void initState() {
     super.initState();
@@ -91,7 +96,37 @@ class _HomeScreenState extends State<HomeScreen> {
       _fetchTrustScore(),
       _fetchAds(),
       _fetchNearbyShops(),
+      _fetchUserSuggestions(),
     ]);
+  }
+
+  /// The "User Suggestions" rail: shops other users suggested that an admin
+  /// approved, nearest first when the location is known. Like "Sponsored",
+  /// an empty result or a failure just leaves the section out -- it is extra
+  /// content, so it never shows an error on Home.
+  Future<void> _fetchUserSuggestions() async {
+    try {
+      final response = await ApiClient.instance.get(
+            '/crowdsource/shop-reports/approved',
+            query: {
+              // Every approved suggestion is for everyone; nearest first.
+              'limit': 20,
+              if (_lat != null && _lng != null) 'lat': _lat,
+              if (_lat != null && _lng != null) 'lng': _lng,
+            },
+          ) as List;
+      final suggestions = response
+          .map((e) => SuggestedShop.fromJson(e as Map<String, dynamic>))
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _userSuggestions = suggestions;
+        _loadingSuggestions = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingSuggestions = false);
+    }
   }
 
   /// The "Nearby Shops" rail and map: plain distance-sorted `/shops`,
@@ -548,6 +583,36 @@ class _HomeScreenState extends State<HomeScreen> {
                   categoryTint: categoryColors(context, shop.category),
                 );
               },
+            ),
+          ),
+        ],
+        if (!_loadingSuggestions && _userSuggestions.isNotEmpty) ...[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.xl, AppSpacing.lg, 0),
+            sliver: SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    tr('home.user_suggestions'),
+                    style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    tr('home.user_suggestions_sub'),
+                    style: textTheme.bodySmall?.copyWith(color: context.appColors.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            // The same moving carousel as the two rails above it.
+            child: CoverflowCarousel(
+              itemCount: _userSuggestions.length,
+              step: const Duration(milliseconds: 4600),
+              itemBuilder: (context, index) =>
+                  SuggestedShopCard(shop: _userSuggestions[index]),
             ),
           ),
         ],

@@ -12,6 +12,7 @@ from app.feedback_reviews import handle_event as handle_feedback_event
 from app.routers import (
     alerts_router,
     analytics_router,
+    product_categories_router,
     products_router,
     reviews_router,
     shops_router,
@@ -27,6 +28,12 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     # 2. add the new columns to tables that already exist in an older shop_db
     run_light_migrations(engine)
+    # 2b. the predefined product categories, on a first start
+    with SessionLocal() as db:
+        try:
+            product_categories_router.seed_defaults(db)
+        except Exception:
+            logging.getLogger("shop-service").exception("Could not seed product categories")
     # 3. follow up on shops that have been closed for a fortnight
     sweeper = asyncio.create_task(run_dormant_loop(SessionLocal))
     # 4. item 3: a customer's post-delivery feedback becomes a review here
@@ -54,6 +61,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Product categories before shops_router, so /shops/product-categories is
+# never read as /shops/{shop_id}.
+app.include_router(product_categories_router.router)
 # shops_router first: it declares /shops/owner/me, /shops/external and
 # /shops/landmark, which must be matched before /shops/{shop_id}.
 app.include_router(shops_router.router)
