@@ -17,6 +17,10 @@ jobs:
   build-and-check:
     runs-on: ubuntu-latest
     strategy:
+      # One service's failing suite must not cancel the other seven: with
+      # fail-fast on, a single red job hides whether the rest would have
+      # passed, so a fix has to be guessed at one round trip at a time.
+      fail-fast: false
       matrix:
         service_dir:
           - api-gateway
@@ -47,6 +51,12 @@ jobs:
       # JWT_SECRET has no default on purpose, so the suite is given a
       # throwaway one -- the same thing tests/conftest.py does locally.
       #
+      # httpx is installed here rather than added to any requirements.txt:
+      # fastapi's TestClient needs it, but crowdsource-service does not use
+      # it at run time, and a test-only package does not belong in the
+      # image that service ships. It is pinned to the version every other
+      # service already pins, so CI tests the same client they do.
+      #
       # A service with no tests/ directory is skipped rather than failed,
       # so adding a service to the matrix never breaks the build before its
       # first test is written.
@@ -59,5 +69,5 @@ jobs:
             echo "No tests/ directory in ${{ matrix.service_dir }} - skipping."
             exit 0
           fi
-          pip install pytest
+          pip install pytest==8.3.4 httpx==0.27.2
           python -m pytest tests -q
