@@ -38,13 +38,26 @@ jobs:
         working-directory: ${{ matrix.service_dir }}
         run: pip install -r requirements.txt
 
-      # NOTE: this only checks the Python code is syntactically valid - it
-      # does NOT actually start the service (that needs a real Postgres +
-      # Redis connection, which this simple job doesn't set up).
-      #
-      # TODO (QA lead): add a `services: postgres:` block (see GitHub's
-      # docs on "service containers") so this can actually boot each app
-      # and run real pytest tests against it.
       - name: Check the code compiles (syntax check)
         working-directory: ${{ matrix.service_dir }}
         run: find app -name "*.py" -print0 | xargs -0 python -m py_compile
+
+      # The tests that need a database run on in-memory SQLite (see each
+      # service's tests/conftest.py), so no service container is needed.
+      # JWT_SECRET has no default on purpose, so the suite is given a
+      # throwaway one -- the same thing tests/conftest.py does locally.
+      #
+      # A service with no tests/ directory is skipped rather than failed,
+      # so adding a service to the matrix never breaks the build before its
+      # first test is written.
+      - name: Run the tests
+        working-directory: ${{ matrix.service_dir }}
+        env:
+          JWT_SECRET: ci-only-throwaway-signing-key-0123456789abcdef
+        run: |
+          if [ ! -d tests ]; then
+            echo "No tests/ directory in ${{ matrix.service_dir }} - skipping."
+            exit 0
+          fi
+          pip install pytest
+          python -m pytest tests -q

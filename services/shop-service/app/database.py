@@ -88,6 +88,11 @@ _COLUMN_MIGRATIONS: list[str] = [
     # shops: item 10 -- remembers the one "you are below 5 listed products"
     # warning, so a verified shop's owner is told once, not on every sale.
     "ALTER TABLE shops ADD COLUMN IF NOT EXISTS low_product_warning_at TIMESTAMPTZ",
+    # shops: how a shop came to be verified -- "admin" or "community".
+    # Older rows were all approved by an admin, which is what the backfill
+    # says; NULL would make the admin queue unable to tell them apart.
+    "ALTER TABLE shops ADD COLUMN IF NOT EXISTS verified_via VARCHAR(20)",
+    "UPDATE shops SET verified_via = 'admin' WHERE is_verified AND verified_via IS NULL",
     # products: discounts and photos (shop-owner storefront)
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_percent INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS image BYTEA",

@@ -2044,6 +2044,81 @@
       }
      },
      "response": []
+    },
+    {
+     "name": "Confirm Shop Exists (community verification)",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/confirm",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "confirm"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "Vouch that an unverified shop really is there. Send the CUSTOMER's own position, not the shop's -- a confirmation from further than confirm_radius_km (5 km) away is refused. Needs a verified account whose trust score is at least 50, and an owner cannot confirm their own shop. Once community_confirmations_to_verify (3) distinct nearby customers have confirmed it AND the shop lists min_products_to_verify (5) products, it is verified with verified_via = \"community\" and no admin is involved. The coordinates below are Homagama.",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"latitude\": 6.8441,\n  \"longitude\": 80.002\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Get Shop Confirmations",
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Accept",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/shops/:shop_id/confirmations",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "shops",
+        ":shop_id",
+        "confirmations"
+       ],
+       "variable": [
+        {
+         "key": "shop_id",
+         "value": ""
+        }
+       ]
+      },
+      "description": "How far a shop is towards being verified by its neighbours: confirmations, required, is_verified, verified_via, whether the caller has already confirmed, and how many products the owner still has to list. Works signed out, where confirmed_by_me is always false."
+     },
+     "response": []
     }
    ]
   },
