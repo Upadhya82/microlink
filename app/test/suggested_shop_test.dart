@@ -24,7 +24,7 @@ void main() {
         'closing_time': closing,
         'photo_path': photo,
         'approved_at': '2026-10-20T08:30:00Z',
-        if (distance != null) 'distance_km': distance,
+        'distance_km': ?distance,
       };
 
   test('reads every field the card and sheet show', () {

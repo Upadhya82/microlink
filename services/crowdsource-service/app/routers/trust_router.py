@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, get_current_user
@@ -34,5 +34,21 @@ async def get_my_trust_score(
 
 
 @router.get("/trust-score/{user_id}", response_model=TrustScoreResponse)
-async def get_trust_score(user_id: str, db: Session = Depends(get_db)):
+async def get_trust_score(
+    user_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Somebody else's standing. Admins only.
+
+    This was open to anyone: a signed-out caller could read any account's
+    score, and because the lookup creates the row when it is missing, could
+    also fill the table with rows for user ids that do not exist. Regular
+    users read their own score from /trust-score/me, which needs no id.
+    """
+    if current_user.role != "admin" and current_user.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only read your own trust score",
+        )
     return get_or_create_trust_score(db, user_id)

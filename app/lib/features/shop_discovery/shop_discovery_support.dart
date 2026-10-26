@@ -58,6 +58,17 @@ class ShopExtras {
   /// which is what the chip explains on a long press.
   final double? medianPickupWaitMin;
 
+  /// How many nearby customers have confirmed this shop really exists, and
+  /// how many it needs before it is verified without an admin. Zero on a
+  /// page cached before the app read these fields, which simply shows no
+  /// progress line rather than claiming nobody has confirmed it.
+  final int communityConfirmations;
+  final int confirmationsRequired;
+
+  /// 'admin' or 'community' -- how a verified shop came to be verified. Null
+  /// while it is unverified, or on an older cached page.
+  final String? verifiedVia;
+
   const ShopExtras({
     required this.status,
     this.statusReason,
@@ -74,9 +85,22 @@ class ShopExtras {
     this.isVerified,
     this.delayProne = false,
     this.medianPickupWaitMin,
+    this.communityConfirmations = 0,
+    this.confirmationsRequired = 0,
+    this.verifiedVia,
   });
 
   bool get showsNotVerifiedChip => isVerified == false;
+
+  /// Whether to offer "is this shop really here?" on the shop page. Only
+  /// worth asking when the shop is unverified AND the server told us how
+  /// many confirmations it wants -- an older server sends neither, and a
+  /// button whose every tap 404s is worse than no button.
+  bool get acceptsConfirmations =>
+      isVerified == false && confirmationsRequired > 0;
+
+  /// Vouched for by the neighbourhood rather than checked by an admin.
+  bool get verifiedByCommunity => isVerified == true && verifiedVia == 'community';
 
   factory ShopExtras.fromJson(Map<String, dynamic> json) {
     final isOpen = json['is_open'] as bool? ?? false;
@@ -98,6 +122,9 @@ class ShopExtras {
       inStockCount: _asInt(json['in_stock_count']),
       lowStockCount: _asInt(json['low_stock_count']),
       outOfStockCount: _asInt(json['out_of_stock_count']),
+      communityConfirmations: _asInt(json['community_confirmations']),
+      confirmationsRequired: _asInt(json['confirmations_required']),
+      verifiedVia: json['verified_via'] as String?,
       availability: json['availability'] as String? ?? 'none',
       matchedProduct: json['matched_product'] as String?,
     );

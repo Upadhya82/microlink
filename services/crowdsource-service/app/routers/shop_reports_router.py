@@ -206,12 +206,23 @@ async def update_shop_report_status(
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop report not found")
 
-    was_approved = report.status == ShopReportStatus.approved
+    # Only a real change of status may move the reporter's trust score.
+    # Re-sending the same status (a double-tapped approve button, a retried
+    # request) used to award another +2 and another validated_report every
+    # time, and flipping approved -> rejected -> approved left the score
+    # permanently inflated, because a rejection only takes 1 back.
+    previous_status = report.status
+    # The same reading answers "was it already approved?", which decides
+    # whether the neighbourhood has been told about this shop before.
+    was_approved = previous_status == ShopReportStatus.approved
     report.status = ShopReportStatus(payload.status)
     db.commit()
     db.refresh(report)
 
-    trust.adjust_on_moderation(db, report.reporter_id, approved=payload.status == "approved")
+    if previous_status != report.status:
+        trust.adjust_on_moderation(
+            db, report.reporter_id, approved=payload.status == "approved"
+        )
 
     await publish_event(
         "shop_report.status_changed", {"report_id": report.id, "status": report.status.value}
@@ -415,7 +426,33 @@ async def confirm_shop_report(
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Answer "is this shop really there?" for a reported shop."""
+    """Answer "is this shop really there?" for a reported shop.
+
+    Item 7: only a verified account with enough standing may answer. Before
+    this, any signed-in account could vouch for a shop -- including one
+    whose own reports admins had just rejected, and a shop owner or driver
+    whose application had not been approved.
+    """
+    if not trust.can_confirm_reports(
+        is_verified=current_user.is_verified,
+        score=None,
+        minimum=settings.min_confirm_trust,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account must be verified before you can confirm shops.",
+        )
+    score = trust.get_or_create_trust_score(db, current_user.id).score
+    if not trust.can_confirm_reports(
+        is_verified=current_user.is_verified,
+        score=score,
+        minimum=settings.min_confirm_trust,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account cannot confirm shops yet.",
+        )
+
     report = db.get(NewShopReport, report_id)
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop report not found")

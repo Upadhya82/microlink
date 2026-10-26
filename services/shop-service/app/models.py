@@ -89,6 +89,8 @@ class Shop(Base):
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     verified_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # "admin" or "community" -- which of the two routes verified this shop.
+    verified_via: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Item 10: when the owner was told their verified shop had dropped below
     # the listable-product threshold. Cleared when it climbs back, so the
     # next drop warns them again rather than staying silent forever.
@@ -330,3 +332,32 @@ class DismissedProductCategory(Base):
     name_key: Mapped[str] = mapped_column(String(150), unique=True, index=True, nullable=False)
     dismissed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     dismissed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class ShopExistenceConfirmation(Base):
+    """One nearby customer vouching that a registered shop really is there.
+
+    Enough of these verify the shop without an admin (see app/community.py).
+    The confirmer's own position is kept, not just the distance, so a
+    confirmation can be audited later if a shop turns out not to exist --
+    the distance alone could not be checked again once the shop moved.
+
+    One row per (shop, user): the unique key is what makes "three
+    confirmations" mean three people rather than one person tapping thrice.
+    """
+
+    __tablename__ = "shop_existence_confirmations"
+    __table_args__ = (
+        UniqueConstraint("shop_id", "user_id", name="uq_shop_confirmation_shop_user"),
+    )
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    shop_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("shops.id"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    distance_km: Mapped[float] = mapped_column(Float, nullable=False)
+    trust_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

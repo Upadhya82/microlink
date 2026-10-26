@@ -25,7 +25,7 @@ DeliveryOrder _order(String id, String status, {List<Map<String, dynamic>>? item
       'total_amount': 250,
       'created_at': '2026-10-20T08:00:00Z',
       'updated_at': '2026-10-20T08:00:00Z',
-      if (distance != null) 'distance_km': distance,
+      'distance_km': ?distance,
     });
 
 Shop _shop(String name, String category, {bool open = true}) => Shop.fromJson({

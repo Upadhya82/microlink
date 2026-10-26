@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as ll;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/location/delivery_location_store.dart';
@@ -22,6 +23,8 @@ import '../../../core/utils/category_style.dart';
 import '../../location/screens/location_picker_screen.dart';
 import '../../location/widgets/area_search_field.dart';
 import '../../location/widgets/map_pin.dart';
+import '../../location/widgets/draggable_map_sheet.dart';
+import '../../location/widgets/map_chrome.dart';
 import '../../location/widgets/map_tile_layer.dart';
 import '../voice_guidance.dart';
 import '../../../core/widgets/branded_app_bar.dart';
@@ -88,6 +91,38 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   List<Shop> _shops = const [];
   bool _shopsLoading = false;
 
+  /// The base map under everything. Street by default: it names the roads a
+  /// delivery is actually given in, which imagery alone does not.
+  MapBaseLayer _baseLayer = MapBaseLayer.standard;
+
+  /// The category chip in effect, or null for all of them.
+  String? _categoryFilter;
+
+  /// The live camera, kept so the scale bar and the zoom buttons can read it
+  /// before the map has emitted its first move event.
+  double _zoom = 14;
+
+  static const double _minZoom = 5;
+
+  /// The furthest in this map may go, which depends on the layer: there is
+  /// no point zooming past the last level a provider has tiles for, because
+  /// all that gains is a blurrier picture of the same thing.
+  double get _maxZoom => _baseLayer.maxZoom;
+
+  /// The shops actually drawn: everything loaded, narrowed by the chips.
+  List<Shop> get _visibleShops => _categoryFilter == null
+      ? _shops
+      : _shops.where((s) => s.category == _categoryFilter).toList();
+
+  /// How many loaded shops fall in each category, for the chip strip.
+  Map<String, int> get _categoryCounts {
+    final counts = <String, int>{};
+    for (final shop in _shops) {
+      counts[shop.category] = (counts[shop.category] ?? 0) + 1;
+    }
+    return counts;
+  }
+
   // --- agent --------------------------------------------------------------
   List<DeliveryOrder> _agentOrders = const [];
   /// Pickup points for the agent's orders, keyed by order id. Looked up from
@@ -116,6 +151,29 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   /// the list rather than losing it.
   _RouteOption? _chosenRoute;
 
+  /// Where each route's time badge sits, worked out once per route set.
+  ///
+  /// This used to be computed inside build(). Every camera movement calls
+  /// setState so the scale bar stays right, so the search below was running
+  /// for every route on every frame of every pan, zoom and fit animation --
+  /// thousands of distance calculations a frame, which locked the UI up
+  /// after a few route switches. The anchors only change when the routes
+  /// do, so that is when they are computed.
+  final Map<_RouteOption, ll.LatLng> _labelAnchors = {};
+
+  /// Where flutter_map reports which polyline a tap landed on. This is what
+  /// makes the greyed-out routes selectable by tapping the line itself,
+  /// which is how everyone expects to pick a route on a map.
+  ///
+  /// Typed `Object`, not `_RouteOption`, on purpose. flutter_map builds the
+  /// result as a `LayerHitResult<Object>` whatever the notifier's own type
+  /// argument is. Declaring the narrower type compiles, but on the web every
+  /// pointer event then fails its cast inside the gesture handler, and a
+  /// throwing hit test leaves the gesture arena wedged -- which is why the
+  /// map froze after a couple of route switches and stopped accepting any
+  /// input at all. The values are filtered in [_onRouteTapped] instead.
+  final LayerHitNotifier<Object> _routeHits = ValueNotifier(null);
+
   /// Voice locale of the current answer, reused when swapping routes.
   String _voiceLocale = 'en-US';
   double? _distanceKm;
@@ -138,6 +196,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   @override
   void initState() {
     super.initState();
+    _loadVoicePreference();
     _bootstrap();
   }
 
@@ -157,6 +216,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   @override
   void dispose() {
     _voice.dispose();
+    _routeHits.dispose();
     _positionSub?.cancel();
     _mapController.dispose();
     super.dispose();
@@ -236,22 +296,34 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     if (spoken != null) setState(() => _currentStep = spoken);
   }
 
+  /// Load the saved voice setting. Done before any route exists, so the
+  /// button is already showing the right state the first time it appears.
+  Future<void> _loadVoicePreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    // Default on: a driver who has never touched the button is better served
+    // hearing the first turn than missing it.
+    final muted = !(prefs.getBool(AppConstants.voiceGuidanceKey) ?? true);
+    await _voice.setMuted(muted);
+    if (!mounted) return;
+    setState(() => _muted = muted);
+  }
+
   Future<void> _toggleMute() async {
     final next = !_muted;
     await _voice.setMuted(next);
     if (!mounted) return;
     setState(() => _muted = next);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(AppConstants.voiceGuidanceKey, !next);
   }
 
   /// Start turn-by-turn guidance: lock the camera to the driver, make sure
   /// they can hear the instructions, and jump to where they actually are.
   Future<void> _startNavigation() async {
-    if (_muted) await _voice.setMuted(false);
-    if (!mounted) return;
-    setState(() {
-      _muted = false;
-      _followMe = true;
-    });
+    // The voice setting is the user's, not the trip's. This used to force
+    // it back on at the start of every route, so turning it off never
+    // actually stuck -- which is the whole complaint.
+    setState(() => _followMe = true);
     final me = _myLocation;
     if (me != null) _moveCamera(me, 16);
 
@@ -424,6 +496,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
           steps: steps,
           summary: 'Recommended',
         );
+        _recomputeLabelAnchors();
       });
       await _voice.setRoute(steps, voiceLocale: _voiceLocale);
       _fitRoute(origin, destination);
@@ -463,11 +536,13 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
           if (other != option) other,
         ?previous,
       ];
+      _recomputeLabelAnchors();
     });
     await _voice.setRoute(option.steps, voiceLocale: _voiceLocale);
-    final origin = _myLocation;
-    final destination = _destination;
-    if (origin != null && destination != null) _fitRoute(origin, destination);
+    // Deliberately no re-fit of the camera. Refitting fired a burst of map
+    // events on every switch, and it also throws away the view the user had
+    // just set up to compare the routes with -- Google Maps leaves the
+    // camera alone when you pick an alternative, for the same reason.
   }
 
   void _clearRoute() {
@@ -483,6 +558,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
       _steps = const [];
       _currentStep = null;
       _routeError = null;
+      _labelAnchors.clear();
     });
   }
 
@@ -513,6 +589,36 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     }
   }
 
+  /// Step the camera one level, the way the +/- buttons do. Clamped here
+  /// rather than relying on the map, so the buttons can grey themselves out
+  /// at the ends instead of looking broken.
+  void _zoomBy(double delta) {
+    final target = (_mapController.camera.zoom + delta).clamp(_minZoom, _maxZoom);
+    if (target == _mapController.camera.zoom) return;
+    _mapController.move(_mapController.camera.center, target);
+    setState(() => _zoom = target);
+  }
+
+  void _showLayerPicker() {
+    MapLayerPicker.show(
+      context,
+      selected: _baseLayer,
+      onSelected: _setBaseLayer,
+    );
+  }
+
+  /// Switch the base map, pulling the camera back if the new layer cannot
+  /// go as deep as the old one -- otherwise terrain, which stops at 17,
+  /// would open as a stretched blur after satellite at 19.
+  void _setBaseLayer(MapBaseLayer layer) {
+    setState(() => _baseLayer = layer);
+    final current = _mapController.camera.zoom;
+    if (current > layer.maxZoom) {
+      _mapController.move(_mapController.camera.center, layer.maxZoom);
+      setState(() => _zoom = layer.maxZoom);
+    }
+  }
+
   void _onMapEvent(MapEvent event) {
     final center = event.camera.center;
     // Only a user gesture should break follow-me; our own programmatic
@@ -529,9 +635,12 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     if (byUser && _followMe) {
       setState(() => _followMe = false);
     }
-    if (center != _cameraCenter || drifted != _canSearchThisArea) {
+    if (center != _cameraCenter ||
+        drifted != _canSearchThisArea ||
+        event.camera.zoom != _zoom) {
       setState(() {
         _cameraCenter = center;
+        _zoom = event.camera.zoom;
         _canSearchThisArea = !_isAgent && drifted;
       });
     }
@@ -603,14 +712,17 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
           options: MapOptions(
             initialCenter: _destination ?? me ?? kFallbackCenter,
             initialZoom: 14,
-            minZoom: 5,
-            maxZoom: 18,
+            minZoom: _minZoom,
+            maxZoom: _maxZoom,
             onMapEvent: _onMapEvent,
           ),
           children: [
-            const MapTileLayer(),
+            MapTileLayer(layer: _baseLayer),
             if (_polylinePoints.isNotEmpty)
-              PolylineLayer(
+              GestureDetector(
+                onTap: _onRouteTapped,
+                child: PolylineLayer(
+                hitNotifier: _routeHits,
                 polylines: [
                   // Item 2: the other routes first, so they sit UNDER the
                   // chosen one. Muted and dashed: visibly an option, never
@@ -621,6 +733,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                       strokeWidth: 5,
                       color: colorScheme.outline.withValues(alpha: 0.55),
                       pattern: StrokePattern.dashed(segments: const [9, 7]),
+                      hitValue: option,
                     ),
                   // Drawn twice: a thick translucent casing under a solid
                   // line, so the route stays readable over dense map detail.
@@ -635,7 +748,13 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                     color: colorScheme.primary,
                   ),
                 ],
+                ),
               ),
+            // The time badges that sit on each route. Google Maps puts the
+            // choice on the map rather than only in a list, because the
+            // thing being chosen between is the shape of the line.
+            if (_alternatives.isNotEmpty)
+              MarkerLayer(markers: _buildRouteLabels(context)),
             MarkerLayer(markers: _buildMarkers(context)),
           ],
         ),
@@ -662,6 +781,16 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                   ),
                 ],
               ),
+              if (!_isAgent)
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.sm),
+                  child: MapCategoryChips(
+                    selected: _categoryFilter,
+                    counts: _categoryCounts,
+                    onSelected: (category) =>
+                        setState(() => _categoryFilter = category),
+                  ),
+                ),
               if (locationNotice != null)
                 Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.sm),
@@ -732,11 +861,29 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
               const SizedBox(height: AppSpacing.md),
               _RoundMapButton(
                 icon: Icons.layers_outlined,
+                tooltip: 'Map type',
+                highlighted: _baseLayer != MapBaseLayer.standard,
+                onPressed: _showLayerPicker,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              // Travel mode used to own the layers icon, which is why the
+              // map had no way to switch base maps at all.
+              _RoundMapButton(
+                icon: Icons.directions_outlined,
                 tooltip: 'Travel mode',
                 onPressed: _showTravelModeSheet,
               ),
-              // Only meaningful while there is something to announce.
-              if (_steps.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.md),
+              MapZoomControls(
+                onZoomIn: () => _zoomBy(1),
+                onZoomOut: () => _zoomBy(-1),
+                canZoomIn: _zoom < _maxZoom,
+                canZoomOut: _zoom > _minZoom,
+              ),
+              // Shown as soon as there is a route rather than only once
+              // guidance is already speaking -- the point of the button is
+              // to decide before the first instruction, not after it.
+              if (_destination != null || _steps.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.md),
                 _RoundMapButton(
                   icon: _muted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
@@ -753,6 +900,26 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                   onPressed: _pickDeliveryLocation,
                 ),
               ],
+            ],
+          ),
+        ),
+
+        // --- scale + credits -----------------------------------------------
+        // Sat above the sheet rather than at the very bottom edge, which is
+        // where the sheet would cover them.
+        Positioned(
+          right: AppSpacing.md,
+          bottom: AppSpacing.xxxl * 3,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              MapScaleBar(
+                zoom: _zoom,
+                latitude: _cameraCenter.latitude,
+                onDark: _baseLayer.isDark,
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              MapAttribution(layer: _baseLayer),
             ],
           ),
         ),
@@ -784,7 +951,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                       onRouteToDropoff: (o) => _routeToOrder(o, toPickup: false),
                     )
                   : _NearbyShopsSheet(
-                      shops: _shops,
+                      shops: _visibleShops,
                       areaLabel: _areaLabel,
                       loading: _shopsLoading,
                       onShopTapped: _onShopTapped,
@@ -798,6 +965,101 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
         ),
       ],
     );
+  }
+
+  /// Select whichever alternative the tap landed on.
+  ///
+  /// The chosen route carries no hit value, so tapping it reports nothing
+  /// and this does nothing -- which is right: tapping the route you are
+  /// already on should not disturb it.
+  void _onRouteTapped() {
+    final hit = _routeHits.value;
+    if (hit == null) return;
+    for (final value in hit.hitValues) {
+      if (value is _RouteOption) {
+        _selectRoute(value);
+        return;
+      }
+    }
+  }
+
+  /// A badge per route showing how long it takes, anchored at the point
+  /// where that route is furthest from the chosen one so the badges do not
+  /// pile up on the stretch the routes share.
+  /// Work out where every badge goes. Called only when the route set
+  /// changes -- never from build().
+  void _recomputeLabelAnchors() {
+    _labelAnchors.clear();
+    final chosen = _chosenRoute;
+    if (chosen != null && chosen.points.length > 1) {
+      _labelAnchors[chosen] = _labelAnchor(chosen.points, avoiding: null);
+    }
+    for (final option in _alternatives) {
+      _labelAnchors[option] = _labelAnchor(option.points, avoiding: chosen?.points);
+    }
+  }
+
+  List<Marker> _buildRouteLabels(BuildContext context) {
+    final chosen = _chosenRoute;
+    return [
+      for (final option in _alternatives)
+        if (_labelAnchors[option] != null)
+        Marker(
+          point: _labelAnchors[option]!,
+          width: 96,
+          height: 38,
+          alignment: Alignment.center,
+          child: _RouteTimeBadge(
+            minutes: option.durationMinutes,
+            selected: false,
+            onTap: () => _selectRoute(option),
+          ),
+        ),
+      if (chosen != null && _labelAnchors[chosen] != null)
+        Marker(
+          point: _labelAnchors[chosen]!,
+          width: 96,
+          height: 38,
+          alignment: Alignment.center,
+          child: _RouteTimeBadge(
+            minutes: chosen.durationMinutes,
+            selected: true,
+            onTap: null,
+          ),
+        ),
+    ];
+  }
+
+  /// Where to put a route's badge.
+  ///
+  /// The midpoint is the obvious choice but a poor one: two routes out of
+  /// the same junction often share their middle, so the badges land on top
+  /// of each other. This picks the point furthest from the route being
+  /// compared against, which is by definition where the two visibly differ.
+  ll.LatLng _labelAnchor(List<ll.LatLng> points, {List<ll.LatLng>? avoiding}) {
+    if (points.isEmpty) return kFallbackCenter;
+    if (avoiding == null || avoiding.isEmpty) {
+      return points[points.length ~/ 2];
+    }
+    var best = points[points.length ~/ 2];
+    var bestDistance = -1.0;
+    // Sampled rather than exhaustive: a route can be hundreds of points, so
+    // comparing every pair would be tens of thousands of comparisons even
+    // though it only runs when the routes change.
+    final step = (points.length / 40).ceil();
+    final otherStep = (avoiding.length / 40).ceil();
+    for (var i = 0; i < points.length; i += step) {
+      var nearest = double.infinity;
+      for (var j = 0; j < avoiding.length; j += otherStep) {
+        final d = LocationService.instance.distanceKm(points[i], avoiding[j]);
+        if (d < nearest) nearest = d;
+      }
+      if (nearest > bestDistance) {
+        bestDistance = nearest;
+        best = points[i];
+      }
+    }
+    return best;
   }
 
   List<Marker> _buildMarkers(BuildContext context) {
@@ -839,7 +1101,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
         );
       }
     } else {
-      for (final shop in _shops) {
+      for (final shop in _visibleShops) {
         final isSelected = _destination != null &&
             _destination!.latitude == shop.latitude &&
             _destination!.longitude == shop.longitude;
@@ -1093,46 +1355,37 @@ class _RoundMapButton extends StatelessWidget {
 // Bottom sheets
 // ===========================================================================
 
+/// The surface every map sheet shares. Now draggable: the map is the point
+/// of the screen, and a panel that permanently covers its bottom third is
+/// in the way as often as it is useful.
 class _SheetShell extends StatelessWidget {
   final Widget child;
 
-  const _SheetShell({required this.child});
+  /// The one line shown once the sheet has been pulled down.
+  final String collapsedLabel;
+  final IconData collapsedIcon;
+
+  const _SheetShell({
+    required this.child,
+    required this.collapsedLabel,
+    this.collapsedIcon = Icons.storefront_outlined,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Material(
-      color: colorScheme.surface,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.card + 6)),
-      elevation: 8,
-      shadowColor: Colors.black.withValues(alpha: 0.15),
+    return DraggableMapSheet(
+      collapsedLabel: collapsedLabel,
+      collapsedIcon: collapsedIcon,
       child: SafeArea(
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.lg,
-            AppSpacing.sm,
+            0,
             AppSpacing.lg,
             AppSpacing.lg,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 38,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: AppSpacing.md),
-                  decoration: BoxDecoration(
-                    color: colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(AppRadius.pill),
-                  ),
-                ),
-              ),
-              child,
-            ],
-          ),
+          child: child,
         ),
       ),
     );
@@ -1169,6 +1422,7 @@ class _NearbyShopsSheet extends StatelessWidget {
         : '${shops.length} $noun near ${areaLabel!}';
 
     return _SheetShell(
+      collapsedLabel: loading ? 'Looking for shops…' : title,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1329,6 +1583,10 @@ class _AgentJobsSheet extends StatelessWidget {
     final colors = context.appColors;
 
     return _SheetShell(
+      collapsedIcon: Icons.local_shipping_outlined,
+      collapsedLabel: orders.isEmpty
+          ? 'No active deliveries'
+          : '${orders.length} active ${orders.length == 1 ? 'delivery' : 'deliveries'}',
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1415,6 +1673,71 @@ class _AgentJobsSheet extends StatelessWidget {
 /// Carries its own steps, so selecting it swaps the voice guidance as well
 /// as the line on the map -- an alternative with the previous route's
 /// instructions would be worse than offering none.
+/// The time badge sitting on a route line.
+///
+/// The chosen route's badge is filled in the brand colour and is not
+/// tappable; the others are pale and are, which is the whole affordance --
+/// the pale ones are the offer, the filled one is the answer.
+class _RouteTimeBadge extends StatelessWidget {
+  const _RouteTimeBadge({
+    required this.minutes,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final double minutes;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  String get _label {
+    final total = minutes.round();
+    if (total < 60) return '$total min';
+    final hours = total ~/ 60;
+    final rest = total % 60;
+    return rest == 0 ? '$hours h' : '$hours h $rest';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final background = selected ? colorScheme.primary : colorScheme.surface;
+    final foreground = selected ? colorScheme.onPrimary : colorScheme.onSurface;
+
+    return Center(
+      child: Material(
+        color: background,
+        elevation: selected ? 4 : 2,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!selected)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Icon(Icons.alt_route_rounded, size: 14, color: foreground),
+                  ),
+                Text(
+                  _label,
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _RouteOption {
   final List<ll.LatLng> points;
   final double distanceKm;
@@ -1497,6 +1820,8 @@ class _RouteSheet extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
 
     return _SheetShell(
+      collapsedIcon: Icons.navigation_outlined,
+      collapsedLabel: label,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
