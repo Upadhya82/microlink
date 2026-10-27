@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.backfill import run_backfill
 from app.database import Base, SessionLocal, engine
 from app.expiry import run_expiry_loop
 from app.timeliness import run_timeliness_loop
@@ -20,6 +21,10 @@ async def lifespan(app: FastAPI):
     # missing COLUMN to tables that an older version of this service created.
     Base.metadata.create_all(bind=engine)
     run_startup_migrations(engine)
+    # Orders placed before shop_name existed have none; fill them in from
+    # shop-service. A background task, not an await: it talks over the
+    # network, and nothing about serving requests depends on it finishing.
+    backfill = asyncio.create_task(run_backfill(SessionLocal))
     sweeper = asyncio.create_task(run_expiry_loop(SessionLocal))
     # Item 4: work out which shops keep drivers waiting, on a schedule,
     # so the search path never has to ask.
@@ -27,7 +32,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        for task in (sweeper, timeliness):
+        for task in (backfill, sweeper, timeliness):
             task.cancel()
             try:
                 await task

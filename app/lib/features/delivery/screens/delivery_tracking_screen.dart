@@ -1091,21 +1091,37 @@ class _OrderDetailsCard extends StatelessWidget {
                 Icon(Icons.storefront_outlined, size: 18, color: colors.textSecondary),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
-                  child: Text.rich(
-                    TextSpan(
-                      text: 'From ',
-                      children: [
-                        TextSpan(
-                          text: order.shopName!.trim(),
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        if (order.pickupAddress != null &&
-                            order.pickupAddress!.isNotEmpty)
+                  // Tappable: knowing the name answers "which shop?", but
+                  // the next thing anyone wants is the shop itself -- its
+                  // hours, its phone, what else it sells.
+                  child: InkWell(
+                    onTap: () => Navigator.pushNamed(
+                      context,
+                      AppRoutes.shopDetail,
+                      arguments: ShopDetailArgs(order.shopId),
+                    ),
+                    child: Text.rich(
+                      TextSpan(
+                        text: 'From ',
+                        children: [
                           TextSpan(
-                            text: ', ${order.pickupAddress}',
-                            style: TextStyle(color: colors.textSecondary),
+                            text: order.shopName!.trim(),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Theme.of(context).colorScheme.primary,
+                              decoration: TextDecoration.underline,
+                              decorationColor:
+                                  Theme.of(context).colorScheme.primary,
+                            ),
                           ),
-                      ],
+                          if (order.pickupAddress != null &&
+                              order.pickupAddress!.isNotEmpty)
+                            TextSpan(
+                              text: ', ${order.pickupAddress}',
+                              style: TextStyle(color: colors.textSecondary),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
