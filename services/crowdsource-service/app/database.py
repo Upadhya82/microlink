@@ -36,6 +36,17 @@ _COLUMN_MIGRATIONS: list[str] = [
     "ALTER TABLE new_shop_reports ADD COLUMN IF NOT EXISTS has_photo BOOLEAN NOT NULL DEFAULT FALSE",
     # fast track: the suggested phone number belongs to a MicroLink account
     "ALTER TABLE new_shop_reports ADD COLUMN IF NOT EXISTS phone_user_id VARCHAR(36)",
+    # The shop's own contact details and hours, so an approved suggestion
+    # carries them straight into the created shop. Added to the model
+    # without these three statements, which left every GET of the table
+    # raising UndefinedColumn against any database created before them --
+    # create_all() adds missing TABLES, never missing COLUMNS.
+    "ALTER TABLE new_shop_reports ADD COLUMN IF NOT EXISTS phone VARCHAR(30)",
+    "ALTER TABLE new_shop_reports ADD COLUMN IF NOT EXISTS opening_time VARCHAR(10)",
+    "ALTER TABLE new_shop_reports ADD COLUMN IF NOT EXISTS closing_time VARCHAR(10)",
+    # What a neighbour said when they confirmed a shop, not just whether
+    # they agreed.
+    "ALTER TABLE shop_report_confirmations ADD COLUMN IF NOT EXISTS comment VARCHAR(500)",
 ]
 
 

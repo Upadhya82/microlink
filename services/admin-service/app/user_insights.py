@@ -27,7 +27,31 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
+# The roles this tab reports on, in the names the app's own UI uses as its
+# keys (see insightRoles in admin_user_insights_tab.dart).
 ROLES = ("customer", "shop_owner", "delivery_agent")
+
+# What user-service calls each of them. Its UserRole enum has no "customer":
+# a plain shopper is "user" there. Asking it for ?role=customer answered 422,
+# which failed the whole tab with a 502, and any row that had arrived would
+# then have been dropped by the `role not in ROLES` check below -- so the
+# count would have been zero even if the request had succeeded. The two
+# vocabularies are mapped here rather than renamed, because the app keys its
+# labels, colours and icons off "customer".
+ROLE_QUERY_NAMES = {
+    "customer": "user",
+    "shop_owner": "shop_owner",
+    "delivery_agent": "delivery_agent",
+}
+
+# The same mapping the other way, for the role on an incoming user row.
+_REPORTING_ROLE = {source: name for name, source in ROLE_QUERY_NAMES.items()}
+
+
+def reporting_role(raw_role: str) -> str | None:
+    """This tab's name for a user-service role, or None if it is not counted
+    (an admin, or anything unrecognised)."""
+    return _REPORTING_ROLE.get(raw_role)
 
 UNKNOWN_AREA = "Location not known"
 
@@ -212,8 +236,8 @@ def build_insights(
     rows: list[dict[str, Any]] = []
 
     for user in users:
-        role = str(user.get("role") or "")
-        if role not in ROLES:
+        role = reporting_role(str(user.get("role") or ""))
+        if role is None:
             continue
         user_id = str(user.get("id") or "")
         created_at = _parse_time(user.get("created_at"))

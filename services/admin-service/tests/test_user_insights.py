@@ -87,8 +87,11 @@ class UserPointsTests(unittest.TestCase):
 class BuildInsightsTests(unittest.TestCase):
     def setUp(self):
         self.users = [
-            _user("c1", "customer", "Kamal Perera", days_ago=2),
-            _user("c2", "customer", "Nimali Silva"),
+            # "user" is what user-service calls a plain shopper; this tab
+            # reports them as "customer". Feeding it "customer" here, as this
+            # test used to, tested a row user-service never sends.
+            _user("c1", "user", "Kamal Perera", days_ago=2),
+            _user("c2", "user", "Nimali Silva"),
             _user("o1", "shop_owner", "Sunil Stores"),
             _user("a1", "delivery_agent", "Ruwan Rider", days_ago=1),
             _user("admin", "admin", "The Admin"),
@@ -111,6 +114,18 @@ class BuildInsightsTests(unittest.TestCase):
         self.assertEqual(
             result["new_this_week"], {"customer": 1, "shop_owner": 0, "delivery_agent": 1}
         )
+
+    def test_a_shoppers_role_is_reported_as_customer(self):
+        """The row says "user"; the tab, and the app reading it, say
+        "customer". Mixing the two up is what made this tab 502."""
+        result = build_insights(self.users, self.points, now=NOW)
+        kamal = next(r for r in result["users"] if r["id"] == "c1")
+        self.assertEqual(kamal["role"], "customer")
+
+    def test_an_unknown_role_is_not_counted(self):
+        result = build_insights([_user("x", "wizard", "Nobody")], {}, now=NOW)
+        self.assertEqual(result["totals"]["total"], 0)
+        self.assertEqual(result["users"], [])
 
     def test_each_user_gets_a_district_or_none(self):
         rows = {row["id"]: row for row in build_insights(self.users, self.points, now=NOW)["users"]}

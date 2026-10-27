@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.auth import CurrentUser, bearer_scheme, require_admin
-from app.user_insights import ROLES, build_insights, user_points
+from app.user_insights import ROLE_QUERY_NAMES, build_insights, user_points
 
 router = APIRouter(prefix="/admin", tags=["user insights"])
 
@@ -59,7 +59,8 @@ async def get_user_insights(
         # One call per role, so each can return its own full page of 500.
         user_calls = [
             client.get(_USERS_URL, params={"role": role, "limit": 500}, headers=headers)
-            for role in ROLES
+            # user-service's own names for the roles, not this tab's.
+            for role in ROLE_QUERY_NAMES.values()
         ]
         try:
             user_responses = await asyncio.gather(*user_calls)
