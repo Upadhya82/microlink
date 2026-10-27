@@ -70,6 +70,22 @@ ACTIVE_STATUSES = (OrderStatus.accepted, OrderStatus.picked_up, OrderStatus.in_t
 _ALREADY_TAKEN = "This order has already been accepted by another agent"
 _ONE_AT_A_TIME = "You already have an active delivery. Finish it before accepting another one."
 
+# An offer can go away for reasons that have nothing to do with another
+# agent, and "somebody else took it" is simply untrue when the customer
+# cancelled -- the agent goes looking for a job that no longer exists
+# instead of moving on. Only the states an agent can actually arrive at are
+# listed; anything else really is another agent holding it.
+_NOT_OFFERABLE = {
+    OrderStatus.cancelled: "This order was cancelled and is no longer on offer.",
+    OrderStatus.delivered: "This order has already been delivered.",
+}
+
+
+def _offer_refusal(order: Order) -> str:
+    """Why this offer is no longer open, in the agent's own terms."""
+    return _NOT_OFFERABLE.get(order.status, _ALREADY_TAKEN)
+
+
 # An agent can give up a delivery at either stage, but the two are not the
 # same thing. Before pickup nothing has moved, so the order simply goes back
 # on offer. After pickup the agent is holding the customer's goods: the
@@ -512,7 +528,7 @@ async def accept_order(
 
     order = _get_order_or_404(db, order_id)
     if order.status != OrderStatus.pending or order.agent_id is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_ALREADY_TAKEN)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_offer_refusal(order))
 
     already_busy = (
         db.query(Order.id)
@@ -578,7 +594,7 @@ async def reject_order(
 
     order = _get_order_or_404(db, order_id)
     if order.status != OrderStatus.pending or order.agent_id is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_ALREADY_TAKEN)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_offer_refusal(order))
 
     hidden_until = None
     if payload.reason == "timeout":
