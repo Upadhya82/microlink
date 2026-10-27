@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../../core/location/location_service.dart';
 import '../../../core/network/api_client.dart';
@@ -14,6 +15,7 @@ import '../../../core/models/shop.dart' show formatCategoryLabel;
 import '../../../core/widgets/list_filter_bar.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/stagger_in.dart';
+import '../widgets/shop_report_details_sheet.dart';
 import '../widgets/suggestion_comments.dart';
 
 /// "Confirm shops near you" (item 6).
@@ -38,6 +40,10 @@ class _ConfirmShopsScreenState extends State<ConfirmShopsScreen> {
   String _category = 'all';
   String _query = '';
 
+  /// Where the person is, kept from the load so each report can say how far
+  /// away it is. The server sends coordinates but no distance.
+  LatLng? _here;
+
   /// Reports being answered, so a double tap cannot send two answers.
   final Set<String> _answering = {};
 
@@ -60,7 +66,10 @@ class _ConfirmShopsScreenState extends State<ConfirmShopsScreen> {
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
       if (!mounted) return;
-      setState(() => _state = ViewData(rows));
+      setState(() {
+        _here = point;
+        _state = ViewData(rows);
+      });
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _state = ViewError(e.message));
@@ -234,6 +243,13 @@ class _ConfirmShopsScreenState extends State<ConfirmShopsScreen> {
                   report: report,
                   busy: _answering.contains(report['id']),
                   onAnswer: (confirms) => _promptAnswer(report, confirms),
+                  onOpen: () => showShopReportDetails(
+                    context,
+                    report: report,
+                    busy: _answering.contains(report['id']),
+                    here: _here,
+                    onAnswer: (confirms) => _promptAnswer(report, confirms),
+                  ),
                 ),
               );
             },
@@ -250,10 +266,15 @@ class _ReportCard extends StatelessWidget {
   final bool busy;
   final void Function(bool confirms) onAnswer;
 
+  /// Opens the full report. Answering from the card alone meant judging a
+  /// shop from its name and street, so the card now leads somewhere.
+  final VoidCallback onOpen;
+
   const _ReportCard({
     required this.report,
     required this.busy,
     required this.onAnswer,
+    required this.onOpen,
   });
 
   @override
@@ -267,6 +288,7 @@ class _ReportCard extends StatelessWidget {
     final confirmations = (report['confirmations'] as num?)?.toInt() ?? 0;
 
     return AppCard(
+      onTap: onOpen,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -299,7 +321,12 @@ class _ReportCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      report['address'] as String? ?? '',
+                      [
+                        formatCategoryLabel(
+                            report['category'] as String? ?? 'other'),
+                        if ((report['address'] as String? ?? '').isNotEmpty)
+                          report['address'] as String,
+                      ].join(' · '),
                       style: textTheme.bodySmall
                           ?.copyWith(color: colors.textSecondary),
                     ),
@@ -371,6 +398,36 @@ class _ReportCard extends StatelessWidget {
               ),
             ),
           ],
+          const SizedBox(height: AppSpacing.sm),
+          // Says out loud that there is more to look at. Without it the two
+          // buttons read as the whole of the task, and people answer from
+          // the name alone.
+          Row(
+            children: [
+              Icon(
+                Icons.photo_outlined,
+                size: 16,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  hasPhoto
+                      ? 'See the photo, hours and exact spot'
+                      : 'See the hours, phone and exact spot',
+                  style: textTheme.labelMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 20,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.md),
           Row(
             children: [
