@@ -43,6 +43,8 @@ _STATEMENTS = [
     # were never released, which is also what the wait-time rule reads
     # as "still waiting since it was created".
     f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS reopened_at {_TS}",
+    # When the customer was told their order was still waiting for an agent.
+    f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS unclaimed_notice_at {_TS}",
     f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS picked_up_at {_TS}",
     f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_at {_TS}",
     f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS promised_by {_TS}",

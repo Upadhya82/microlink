@@ -1,18 +1,24 @@
-"""Cancel orders that no delivery agent picked up.
+"""Keeping the customer informed while their order waits for an agent.
 
 An order that sits in the available list with nobody accepting it leaves the
-customer watching a spinner with no idea anything is wrong. After
-`settings.unclaimed_timeout_minutes` the order is cancelled and the customer
-is told to try again, which is honest about what happened and lets them
-re-order straight away.
+customer watching a spinner with no idea anything is wrong. The answer used
+to be to cancel it for them after an hour. That is the wrong way round: an
+order nobody has taken *yet* is not a failed order, it is an order still
+waiting, and ending it is the customer's call, not the system's.
 
-That wait is also how long the shop's stock stays reserved for the order
-(item 12), so it is deliberately generous: a window short enough to expire
-while drivers are simply offline would put the stock back while the
-customer still believed their order was live.
+So after `settings.unclaimed_notice_minutes` the customer is simply told --
+no agent has accepted this yet, it is still waiting, you can keep waiting or
+cancel it -- and the order stays on offer until an agent takes it or the
+customer ends it. They are told once per spell of waiting; an order an agent
+hands back starts the clock again, because from the customer's side it is
+waiting afresh.
 
-Pure helper plus a loop, so the decision of which orders have expired can be
-unit tested without a database or a running event loop.
+The sweep that cancels is kept behind `settings.cancel_unclaimed_orders`,
+off by default, for a deployment that has to cap how long an order may hold
+a shop's reserved stock (item 12).
+
+Pure helpers plus a loop, so which orders are due can be unit tested without
+a database or a running event loop.
 """
 
 import asyncio
@@ -31,7 +37,11 @@ logger = logging.getLogger("delivery-service.expiry")
 # How long an order may wait for an agent before it is cancelled. Read from
 # settings so the window can be tuned per deployment; see
 # `unclaimed_timeout_minutes` in app/config.py for why it is not five.
+# Only acted on when `settings.cancel_unclaimed_orders` is true.
 UNCLAIMED_TIMEOUT_MINUTES = settings.unclaimed_timeout_minutes
+
+# How long an order waits before the customer is told nobody has taken it.
+UNCLAIMED_NOTICE_MINUTES = settings.unclaimed_notice_minutes
 
 # Item 8: nobody chose this cancellation, so it is attributed to the system.
 CANCELLED_BY_SYSTEM = "system"
@@ -77,8 +87,77 @@ def expired_orders(orders, now: datetime, timeout_minutes: int = UNCLAIMED_TIMEO
     ]
 
 
+def orders_awaiting_notice(
+    orders, now: datetime, notice_minutes: int = UNCLAIMED_NOTICE_MINUTES
+):
+    """The waiting orders whose customer has not been told yet.
+
+    `unclaimed_notice_at` is what stops the sweep sending the same message
+    every thirty seconds: it is set when the customer is told, and cleared
+    again when an agent hands the order back.
+    """
+    cutoff = now - timedelta(minutes=notice_minutes)
+    return [
+        order
+        for order in orders
+        if order.status == OrderStatus.pending
+        and order.agent_id is None
+        and getattr(order, "unclaimed_notice_at", None) is None
+        and waiting_since(order) <= cutoff
+    ]
+
+
+async def notify_unclaimed(db: Session, now: datetime | None = None) -> list[str]:
+    """Tell customers whose order is still waiting for an agent.
+
+    The order is left exactly as it is. The message exists to hand the
+    decision back to the person whose order it is, not to announce one that
+    has already been made for them.
+    """
+    now = now or datetime.now(timezone.utc)
+    waiting = (
+        db.query(Order)
+        .filter(
+            Order.status == OrderStatus.pending,
+            Order.agent_id.is_(None),
+            Order.unclaimed_notice_at.is_(None),
+        )
+        .all()
+    )
+    due = orders_awaiting_notice(waiting, now)
+    if not due:
+        return []
+
+    # Marked before the messages go out, so a sweep that fails partway
+    # through cannot send the same customer the same message again.
+    for order in due:
+        order.unclaimed_notice_at = now
+    db.commit()
+
+    minutes = UNCLAIMED_NOTICE_MINUTES
+    for order in due:
+        await notify_users(
+            [order.customer_id],
+            "Still looking for a driver",
+            f"No delivery agent has accepted your order in {minutes} minutes. "
+            "It is still waiting and drivers can still take it. "
+            "Open the order to keep waiting, or cancel it if you would "
+            "rather not.",
+            kind="order",
+            link={"route": "order", "id": order.id},
+        )
+    logger.info("Told %d customer(s) their order is still waiting", len(due))
+    return [order.id for order in due]
+
+
 async def cancel_unclaimed(db: Session, now: datetime | None = None) -> list[str]:
-    """Cancel every order that has waited too long. Returns their ids."""
+    """Cancel every order that has waited too long. Returns their ids.
+
+    Does nothing unless `settings.cancel_unclaimed_orders` is on; by default
+    an order waits until an agent takes it or the customer ends it.
+    """
+    if not settings.cancel_unclaimed_orders:
+        return []
     now = now or datetime.now(timezone.utc)
     waiting = (
         db.query(Order)
@@ -158,6 +237,7 @@ async def run_expiry_loop(session_factory) -> None:
             await asyncio.sleep(SWEEP_SECONDS)
             db = session_factory()
             try:
+                await notify_unclaimed(db)
                 await cancel_unclaimed(db)
                 await retry_owed_releases(db)
             finally:

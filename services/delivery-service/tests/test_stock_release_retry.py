@@ -17,6 +17,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app import expiry, stock
+from app.config import settings
 from app.database import Base
 from app.models import Order, OrderStatus
 
@@ -165,6 +166,15 @@ class ExpiredOrdersReleaseTests(unittest.TestCase):
         self.engine.dispose()
 
     def test_an_order_nobody_accepted_returns_its_stock(self):
+        """With the cap switched on, cancelling still gives the stock back.
+
+        An unclaimed order is no longer cancelled by default -- the customer
+        is told and decides (see test_unclaimed_notice.py). This covers the
+        deployment that does cap the wait, where the point of cancelling is
+        precisely that the shop gets its stock back.
+        """
+        settings.cancel_unclaimed_orders = True
+        self.addCleanup(setattr, settings, "cancel_unclaimed_orders", False)
         stale = datetime(2020, 1, 1, tzinfo=timezone.utc)
         order = Order(
             customer_id="customer-1",

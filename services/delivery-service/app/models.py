@@ -144,6 +144,12 @@ class Order(Base):
     # otherwise a released order is old enough for the unclaimed sweep to
     # cancel it the moment the next agent could have seen it.
     reopened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When the customer was told that nobody had taken the order yet. Set so
+    # the sweep tells them once rather than every thirty seconds, and cleared
+    # when an agent hands the order back, because the waiting starts again.
+    unclaimed_notice_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     picked_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Set when an agent accepts; used to decide "on-time" when it is delivered.

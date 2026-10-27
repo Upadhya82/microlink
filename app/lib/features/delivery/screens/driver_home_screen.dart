@@ -890,7 +890,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                           canAccept: !hasActiveOrder,
                           onAccept: () => _acceptOrder(order),
                           onDecline: () => _rejectOrder(order, reason: 'declined'),
-                          onTimeout: () => _rejectOrder(order, reason: 'timeout'),
                         );
                       },
                     ),
@@ -1102,15 +1101,21 @@ class _ActiveOrderTile extends StatelessWidget {
 }
 
 /// One "available deliveries" card (SRS REQ-AGENT-2): order reference, the fee
-/// the customer offers, pickup -> drop addresses with distances, a 30-second
-/// countdown, and Reject / Accept. When the timer reaches zero the offer is
-/// reported to the backend as a timeout (hidden from this agent for a while).
+/// the customer offers, pickup -> drop addresses with distances, how long the
+/// customer has been waiting, and Reject / Accept.
+///
+/// There is no countdown any more. A 30-second timer used to report the offer
+/// as a timeout and take the card off this agent's screen, so an agent who
+/// was riding, parking or simply reading the addresses lost the job for five
+/// minutes through no fault of their own, and a customer with one driver
+/// nearby watched their order go unanswered while that driver was looking
+/// straight at it. An offer now stays until it is answered or somebody else
+/// takes it; Reject is how an agent says no.
 class _AvailableOrderTile extends StatefulWidget {
   final DeliveryOrder order;
   final bool canAccept;
   final VoidCallback onAccept;
   final VoidCallback onDecline;
-  final VoidCallback onTimeout;
 
   const _AvailableOrderTile({
     super.key,
@@ -1118,7 +1123,6 @@ class _AvailableOrderTile extends StatefulWidget {
     required this.canAccept,
     required this.onAccept,
     required this.onDecline,
-    required this.onTimeout,
   });
 
   @override
@@ -1126,25 +1130,15 @@ class _AvailableOrderTile extends StatefulWidget {
 }
 
 class _AvailableOrderTileState extends State<_AvailableOrderTile> {
-  static const _offerSeconds = 30;
-
+  /// Ticks the "waiting N minutes" line, which is about the customer's wait
+  /// rather than any deadline of the agent's.
   Timer? _timer;
-  int _secondsLeft = _offerSeconds;
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      if (_secondsLeft <= 1) {
-        timer.cancel();
-        widget.onTimeout();
-        return;
-      }
-      setState(() => _secondsLeft--);
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
     });
   }
 
@@ -1152,6 +1146,22 @@ class _AvailableOrderTileState extends State<_AvailableOrderTile> {
   void dispose() {
     _timer?.cancel();
     super.dispose();
+  }
+
+  /// How long the customer has been waiting, or null before a minute is up.
+  ///
+  /// Pressure that belongs on the job, not on the agent: an order somebody
+  /// placed twenty minutes ago is the one worth taking first.
+  String? get _waitingFor {
+    final minutes = DateTime.now().difference(widget.order.createdAt).inMinutes;
+    if (minutes < 1) return null;
+    if (minutes < 60) {
+      return 'Waiting $minutes min for a driver';
+    }
+    final hours = minutes ~/ 60;
+    return hours == 1
+        ? 'Waiting over an hour for a driver'
+        : 'Waiting over $hours hours for a driver';
   }
 
   @override
@@ -1194,11 +1204,16 @@ class _AvailableOrderTileState extends State<_AvailableOrderTile> {
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            'Respond within ${_secondsLeft}s',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(color: colors.warning),
-          ),
+          if (_waitingFor != null) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              _waitingFor!,
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: colors.textSecondary),
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,

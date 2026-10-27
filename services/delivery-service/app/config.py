@@ -62,6 +62,26 @@ class Settings(BaseSettings):
     # nobody ever takes does not hold stock for a whole day.
     unclaimed_timeout_minutes: int = 60
 
+    # Whether that timeout actually cancels anything.
+    #
+    # Off, because ending someone's order for them is not the system's call
+    # to make. An order nobody has taken yet is not a failed order -- it is
+    # an order still waiting -- and cancelling it silently takes the choice
+    # away from the one person entitled to make it. The customer is told
+    # instead (see unclaimed_notice_minutes) and decides for themselves.
+    #
+    # The rule and its sweep are kept so a deployment that must cap how long
+    # stock stays reserved can switch this back on.
+    cancel_unclaimed_orders: bool = False
+
+    # How long an order waits with no agent before the customer is told so.
+    #
+    # Short on purpose: the whole point is to reach them while they are still
+    # looking at the screen wondering, not after they have given up. They are
+    # told once per spell of waiting -- an order an agent hands back starts
+    # the clock again, because from the customer's side it is waiting afresh.
+    unclaimed_notice_minutes: int = 3
+
     # Item 8: how many cancellations by one shop, inside how many days, before
     # admins are told. The alert fires on exactly the Nth, not on every one
     # after it.

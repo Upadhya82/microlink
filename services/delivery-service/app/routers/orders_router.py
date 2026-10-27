@@ -732,6 +732,11 @@ async def release_order(
             "accepted_at": None,
             "promised_by": None,
             "reopened_at": now,
+            # The customer is waiting again, so they are owed the "still
+            # looking for a driver" message again. Left set, a hand-back
+            # half an hour in would be the one wait they are never told
+            # about -- the one where an agent has already given up.
+            "unclaimed_notice_at": None,
             # The ETA belonged to the agent who has just left.
             "agent_eta_minutes": None,
             "agent_notified_at": None,
