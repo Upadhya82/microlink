@@ -67,29 +67,30 @@ class UsersNearTests(unittest.TestCase):
 
 
 class HowFarTheAskReachesTests(unittest.TestCase):
-    """Ten kilometres, not five.
+    """A five-kilometre circle around the shop.
 
-    A suggestion needs four answers before an admin will look at it. In a
-    town like Homagama five kilometres is a couple of neighbourhoods, which
-    was too few people to reach that floor; ten covers the town and the
-    villages around it.
+    The point of asking neighbours rather than an admin is that they walk
+    past the place, and five kilometres is about as far as that stays true.
     """
 
     def test_the_radius_comes_from_settings(self):
         self.assertEqual(NOTIFY_RADIUS_KM, settings.notify_radius_km)
 
-    def test_it_reaches_ten_kilometres(self):
-        self.assertEqual(NOTIFY_RADIUS_KM, 10.0)
+    def test_the_circle_is_five_kilometres(self):
+        self.assertEqual(NOTIFY_RADIUS_KM, 5.0)
 
-    def test_the_next_town_over_is_now_asked(self):
-        # Kottawa is about 7 km from Diyagama: inside ten, outside five.
+    def test_someone_just_inside_the_circle_is_asked(self):
+        # About 4 km north of Diyagama.
+        near = [{"owner_id": "near-owner", "latitude": 6.8760, "longitude": 80.0105}]
+        self.assertEqual(users_near(*SHOP, shops=near), {"near-owner"})
+
+    def test_someone_just_outside_it_is_not(self):
+        # About 7 km away (Kottawa). The circle has to end somewhere, and a
+        # neighbour who does not pass the place is guessing like anyone else.
         kottawa = [{"owner_id": "kottawa-owner", "latitude": 6.8421, "longitude": 79.9650}]
-        self.assertEqual(users_near(*SHOP, shops=kottawa), {"kottawa-owner"})
-        self.assertEqual(users_near(*SHOP, shops=kottawa, radius_km=5), set())
+        self.assertEqual(users_near(*SHOP, shops=kottawa), set())
 
-    def test_colombo_is_still_too_far_to_be_asked(self):
-        # The point of a radius is that it ends somewhere: ~19 km away,
-        # someone has no idea whether a shop in Homagama exists.
+    def test_colombo_is_far_too_far_to_be_asked(self):
         colombo = [{"owner_id": "colombo-owner", "latitude": 6.9271, "longitude": 79.8612}]
         self.assertEqual(users_near(*SHOP, shops=colombo), set())
 

@@ -1,7 +1,7 @@
 """Who lives or works near a shop, so they can be told about it.
 
 MicroLink does not store where people live. So "nearby" is worked out from
-places the system already knows, within NOTIFY_RADIUS_KM (10 km):
+places the system already knows, within NOTIFY_RADIUS_KM (5 km):
 
   * customers, by the address of their newest delivery    (delivery-service)
   * delivery agents, by their last shared live location   (delivery-service)
@@ -32,7 +32,7 @@ from app.geo import haversine_km
 logger = logging.getLogger("crowdsource-service.nearby-people")
 
 # Read from settings so the reach can be tuned without a code change;
-# see `notify_radius_km` in app/config.py for why it is ten.
+# see `notify_radius_km` in app/config.py for why it is five.
 NOTIFY_RADIUS_KM = settings.notify_radius_km
 MAX_NOTIFIED = 500
 
