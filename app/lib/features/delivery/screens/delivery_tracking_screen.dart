@@ -1082,7 +1082,38 @@ class _OrderDetailsCard extends StatelessWidget {
         children: [
           Text('Order details', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: AppSpacing.md),
-          if (order.pickupAddress != null && order.pickupAddress!.isNotEmpty) ...[
+          // Named, not just located. "Pickup: Homagama" never told the
+          // customer which shop they had ordered from.
+          if (order.shopName != null && order.shopName!.trim().isNotEmpty) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.storefront_outlined, size: 18, color: colors.textSecondary),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text.rich(
+                    TextSpan(
+                      text: 'From ',
+                      children: [
+                        TextSpan(
+                          text: order.shopName!.trim(),
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        if (order.pickupAddress != null &&
+                            order.pickupAddress!.isNotEmpty)
+                          TextSpan(
+                            text: ', ${order.pickupAddress}',
+                            style: TextStyle(color: colors.textSecondary),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ] else if (order.pickupAddress != null &&
+              order.pickupAddress!.isNotEmpty) ...[
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

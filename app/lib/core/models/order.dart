@@ -10,6 +10,11 @@ class DeliveryOrder {
   final String id;
   final String customerId;
   final String shopId;
+
+  /// What the shop was called when the order was placed. Null on orders
+  /// from before the server recorded it, and on one placed while
+  /// shop-service was unreachable; [shopLabel] is what the UI shows.
+  final String? shopName;
   final String? agentId;
   final List<Map<String, dynamic>> items;
   final String deliveryAddress;
@@ -48,6 +53,7 @@ class DeliveryOrder {
     required this.id,
     required this.customerId,
     required this.shopId,
+    this.shopName,
     this.agentId,
     required this.items,
     required this.deliveryAddress,
@@ -77,6 +83,23 @@ class DeliveryOrder {
 
   bool get isCancelled => status == 'cancelled';
 
+  /// Which shop this order came from, in the customer's words.
+  ///
+  /// Their order list used to show an order reference, a date, a fee and a
+  /// status -- and nothing about the shop at all, so with two orders open
+  /// there was no way to tell which was which. The name is preferred; an
+  /// order placed before the server recorded it falls back to the pickup
+  /// address, which at least names the street. Null only when there is
+  /// genuinely nothing to say, and the UI then shows no line rather than
+  /// an empty one.
+  String? get shopLabel {
+    final name = shopName?.trim();
+    if (name != null && name.isNotEmpty) return name;
+    final address = pickupAddress?.trim();
+    if (address != null && address.isNotEmpty) return address;
+    return null;
+  }
+
   /// What to tell the customer about a cancellation, or null when there is
   /// nothing to say (not cancelled, or nobody recorded who did it).
   String? get cancellationNote {
@@ -98,6 +121,7 @@ class DeliveryOrder {
       id: json['id'] as String,
       customerId: json['customer_id'] as String,
       shopId: json['shop_id'] as String,
+      shopName: json['shop_name'] as String?,
       agentId: json['agent_id'] as String?,
       items: (json['items'] as List? ?? [])
           .map((e) => Map<String, dynamic>.from(e as Map))

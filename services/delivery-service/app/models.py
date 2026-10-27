@@ -100,6 +100,15 @@ class Order(Base):
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     customer_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     shop_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    # The shop's name as it was when the order was placed.
+    #
+    # Copied rather than looked up, the way pickup_address already is. An
+    # order list would otherwise need one call to shop-service per row to
+    # say anything but a UUID, would say nothing at all whenever that
+    # service was down, and would rewrite history every time a shop renamed
+    # itself. NULL on orders placed before this column existed, and on an
+    # order placed while shop-service was unreachable.
+    shop_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
     agent_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
     items: Mapped[str] = mapped_column(Text, nullable=False)
 

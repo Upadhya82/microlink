@@ -42,6 +42,9 @@ _STATEMENTS = [
     # An agent handed the order back to the pool. NULL on orders that
     # were never released, which is also what the wait-time rule reads
     # as "still waiting since it was created".
+    # The shop's name, copied onto the order when it is placed, so the
+    # customer's own order list can say where they ordered from.
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS shop_name VARCHAR(150)",
     f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS reopened_at {_TS}",
     # When the customer was told their order was still waiting for an agent.
     f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS unclaimed_notice_at {_TS}",

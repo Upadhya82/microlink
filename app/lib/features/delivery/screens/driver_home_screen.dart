@@ -1172,9 +1172,16 @@ class _AvailableOrderTileState extends State<_AvailableOrderTile> {
     final fee = order.totalAmount > 0
         ? 'Rs. ${order.totalAmount.toStringAsFixed(2)}'
         : 'Fee to be agreed';
-    final pickupText = (order.pickupAddress != null && order.pickupAddress!.isNotEmpty)
-        ? order.pickupAddress!
-        : 'Pickup at the shop';
+    // The agent is being asked to ride somewhere; "Pickup at the shop" and
+    // a bare street both leave out the one thing they need to look for.
+    final shopName = order.shopName?.trim();
+    final address = order.pickupAddress?.trim() ?? '';
+    final pickupText = switch ((shopName, address)) {
+      (final String name, '') when name.isNotEmpty => name,
+      (final String name, final String where) when name.isNotEmpty => '$name, $where',
+      (_, '') => 'Pickup at the shop',
+      (_, final String where) => where,
+    };
     final awayText =
         order.distanceKm != null ? ' · ${order.distanceKm!.toStringAsFixed(1)} km away' : '';
     final tripText = order.tripDistanceKm != null

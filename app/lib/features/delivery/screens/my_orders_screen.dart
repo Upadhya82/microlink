@@ -200,13 +200,21 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              // The shop first: an order reference means
+                              // nothing to the person who placed it, and
+                              // with two orders open there was no way to
+                              // tell which was which.
                               Text(
-                                _shortOrderId(order.id),
+                                order.shopLabel ?? _shortOrderId(order.id),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                _formatDate(order.createdAt),
+                                order.shopLabel == null
+                                    ? _formatDate(order.createdAt)
+                                    : '${_shortOrderId(order.id)} · ${_formatDate(order.createdAt)}',
                                 style: Theme.of(context)
                                     .textTheme
                                     .bodySmall

@@ -248,6 +248,9 @@ class OrderResponse(BaseModel):
     id: str
     customer_id: str
     shop_id: str
+    # What the shop was called when the order was placed. NULL on orders from
+    # before this was recorded; the app falls back to the pickup address.
+    shop_name: str | None = None
     agent_id: str | None
     items: list[dict]
     pickup_address: str | None = None

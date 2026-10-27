@@ -177,35 +177,68 @@ async def _shop_owner_id(shop_id: str) -> str | None:
         return None
 
 
-async def resolve_pickup(
-    shop_id: str,
-    lat: float | None,
-    lng: float | None,
-    address: str | None,
-) -> tuple[float | None, float | None, str | None]:
-    """Where the agent collects the order.
+async def fetch_shop(shop_id: str) -> dict | None:
+    """The shop's public record, or None when shop-service cannot answer.
 
-    Checkout only says where the order is going, so a cart order arrived with
-    no pickup point at all: no shop pin on the tracking map and nothing for
-    the agent to navigate to. A point the caller did send (Request Delivery
-    lets the customer move it) is kept; otherwise it is the shop's own. Any
-    failure leaves the order as the caller sent it -- a missing pin is far
-    better than a refused order.
+    None covers every way that can go wrong -- the service being down, the
+    shop not existing, a bad response -- because every caller here treats
+    them the same: carry on without it rather than fail the request.
     """
-    if lat is not None and lng is not None:
-        return lat, lng, address
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
             response = await client.get(f"{settings.shop_service_url}/shops/{shop_id}")
             if response.status_code != 200:
-                return lat, lng, address
-            shop = response.json()
+                return None
+            return response.json()
     except Exception:
+        return None
+
+
+def pickup_from(
+    shop: dict | None,
+    lat: float | None,
+    lng: float | None,
+    address: str | None,
+) -> tuple[float | None, float | None, str | None]:
+    """Where the agent collects the order, given what the caller sent.
+
+    A point the caller did send (Request Delivery lets the customer move it)
+    is kept; otherwise it is the shop's own. No shop, or a shop with no
+    coordinates, leaves the order as the caller sent it -- a missing pin is
+    far better than a refused order.
+    """
+    if lat is not None and lng is not None:
+        return lat, lng, address
+    if shop is None:
         return lat, lng, address
     shop_lat, shop_lng = shop.get("latitude"), shop.get("longitude")
     if not isinstance(shop_lat, (int, float)) or not isinstance(shop_lng, (int, float)):
         return lat, lng, address
     return float(shop_lat), float(shop_lng), address or shop.get("address") or None
+
+
+async def resolve_pickup(
+    shop_id: str,
+    lat: float | None,
+    lng: float | None,
+    address: str | None,
+) -> tuple[float | None, float | None, str | None, str | None]:
+    """Where the agent collects the order, and what the shop is called.
+
+    Checkout only says where the order is going, so a cart order arrived
+    with no pickup point at all: no shop pin on the tracking map and
+    nothing for the agent to navigate to. The name rides along on the same
+    request because the customer's order list had no way to say which shop
+    an order came from -- see `Order.shop_name` for why it is copied onto
+    the order rather than looked up each time it is read.
+
+    The shop is therefore asked even when the caller chose their own pickup
+    point, which it used not to be: the point is still theirs, but the name
+    is wanted either way.
+    """
+    shop = await fetch_shop(shop_id)
+    name = (shop or {}).get("name") or None
+    return (*pickup_from(shop, lat, lng, address), name)
 
 
 async def _owns_shop(shop_id: str, user_id: str) -> bool:
@@ -214,14 +247,7 @@ async def _owns_shop(shop_id: str, user_id: str) -> bool:
     Returns False on any failure, so an unreachable shop-service denies
     access rather than handing out pickup codes to whoever asks.
     """
-    try:
-        async with httpx.AsyncClient(timeout=4.0) as client:
-            response = await client.get(f"{settings.shop_service_url}/shops/{shop_id}")
-            if response.status_code != 200:
-                return False
-            return response.json().get("owner_id") == user_id
-    except Exception:
-        return False
+    return (await fetch_shop(shop_id) or {}).get("owner_id") == user_id
 
 
 def _write_event(
@@ -316,7 +342,7 @@ async def create_order(
             )
         reserved_at = _now()
 
-    pickup_lat, pickup_lng, pickup_address = await resolve_pickup(
+    pickup_lat, pickup_lng, pickup_address, shop_name = await resolve_pickup(
         payload.shop_id, payload.pickup_lat, payload.pickup_lng, payload.pickup_address
     )
     _pickup_code, _delivery_code = _new_code_pair()
@@ -325,6 +351,7 @@ async def create_order(
         stock_reserved_at=reserved_at,
         customer_id=current_user.id,
         shop_id=payload.shop_id,
+        shop_name=shop_name,
         agent_id=None,
         items=json.dumps(payload.items),
         pickup_address=pickup_address,
