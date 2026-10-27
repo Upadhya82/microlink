@@ -6,7 +6,8 @@
 
 import unittest
 
-from app.nearby_people import users_near
+from app.config import settings
+from app.nearby_people import NOTIFY_RADIUS_KM, users_near
 
 SHOP = (6.8402, 80.0105)  # Diyagama
 
@@ -63,6 +64,34 @@ class UsersNearTests(unittest.TestCase):
         shops = [{"owner_id": "owner", "latitude": 6.9271, "longitude": 79.8612}]  # ~19 km
         self.assertEqual(users_near(*SHOP, shops=shops), set())
         self.assertEqual(users_near(*SHOP, shops=shops, radius_km=25), {"owner"})
+
+
+class HowFarTheAskReachesTests(unittest.TestCase):
+    """Ten kilometres, not five.
+
+    A suggestion needs four answers before an admin will look at it. In a
+    town like Homagama five kilometres is a couple of neighbourhoods, which
+    was too few people to reach that floor; ten covers the town and the
+    villages around it.
+    """
+
+    def test_the_radius_comes_from_settings(self):
+        self.assertEqual(NOTIFY_RADIUS_KM, settings.notify_radius_km)
+
+    def test_it_reaches_ten_kilometres(self):
+        self.assertEqual(NOTIFY_RADIUS_KM, 10.0)
+
+    def test_the_next_town_over_is_now_asked(self):
+        # Kottawa is about 7 km from Diyagama: inside ten, outside five.
+        kottawa = [{"owner_id": "kottawa-owner", "latitude": 6.8421, "longitude": 79.9650}]
+        self.assertEqual(users_near(*SHOP, shops=kottawa), {"kottawa-owner"})
+        self.assertEqual(users_near(*SHOP, shops=kottawa, radius_km=5), set())
+
+    def test_colombo_is_still_too_far_to_be_asked(self):
+        # The point of a radius is that it ends somewhere: ~19 km away,
+        # someone has no idea whether a shop in Homagama exists.
+        colombo = [{"owner_id": "colombo-owner", "latitude": 6.9271, "longitude": 79.8612}]
+        self.assertEqual(users_near(*SHOP, shops=colombo), set())
 
 
 if __name__ == "__main__":

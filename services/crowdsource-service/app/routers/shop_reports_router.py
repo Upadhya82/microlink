@@ -104,7 +104,7 @@ def _everyone_else(reporter_id: str) -> list[str]:
 
 
 async def _ask_people_nearby(db: Session, report: NewShopReport, reporter_id: str) -> None:
-    """Ask people within 5 km to confirm a suggested shop."""
+    """Ask everyone known to be within the notify radius to confirm it."""
     try:
         near = await nearby_people.find_users_near(report.latitude, report.longitude, db=db)
         recipients = sorted(near - {reporter_id, None, ""})

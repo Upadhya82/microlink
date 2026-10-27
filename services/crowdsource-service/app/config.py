@@ -37,6 +37,16 @@ class Settings(BaseSettings):
     # reports admins have thrown out.
     min_confirm_trust: int = 50
 
+    # How far from a suggested shop someone can be and still be asked to
+    # confirm it.
+    #
+    # Ten rather than five: in a town like Homagama five kilometres is a
+    # couple of neighbourhoods, and a suggestion was reaching too few people
+    # to collect the four answers it needs before an admin will look at it.
+    # Ten covers the town and the villages around it, which is the distance
+    # people there actually move through in a day.
+    notify_radius_km: float = 10.0
+
     # docker-compose passes a full DATABASE_URL; when set it wins over the parts above.
     database_url_override: str | None = Field(default=None, alias="DATABASE_URL")
     redis_url: str | None = Field(default=None, alias="REDIS_URL")
