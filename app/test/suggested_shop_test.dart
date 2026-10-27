@@ -1,6 +1,9 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:frontend/core/models/suggested_shop.dart';
+import 'package:frontend/core/theme/app_theme.dart';
+import 'package:frontend/features/home/widgets/suggested_shop_card.dart';
 
 /// The Home "User Suggestions" rail reads crowdsource-service's
 /// `GET /crowdsource/shop-reports/approved`.
@@ -47,5 +50,49 @@ void main() {
 
   test('no location sent means no distance', () {
     expect(SuggestedShop.fromJson(json()).distanceKm, isNull);
+  });
+
+  group('the card', () {
+    Future<void> show(WidgetTester tester, SuggestedShop shop) =>
+        tester.pumpWidget(MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(body: SuggestedShopCard(shop: shop)),
+        ));
+
+    testWidgets('never claims the place is verified', (tester) async {
+      // The tick used to be painted with no condition at all, so every
+      // suggestion wore it. Nobody has checked a suggestion: it has no
+      // owner, no listing and no products, and the app grants a tick to
+      // no shop card anywhere.
+      await show(tester, SuggestedShop.fromJson(json(distance: 4.3)));
+
+      expect(find.byIcon(Icons.verified_rounded), findsNothing);
+      expect(find.byIcon(Icons.verified), findsNothing);
+      expect(find.byIcon(Icons.verified_outlined), findsNothing);
+      expect(find.byIcon(Icons.verified_user), findsNothing);
+    });
+
+    testWidgets('says what it is instead', (tester) async {
+      await show(tester, SuggestedShop.fromJson(json(distance: 4.3)));
+
+      expect(find.text('SUGGESTED'), findsOneWidget);
+      expect(find.text('Corner Grocery'), findsOneWidget);
+    });
+
+    testWidgets('a long name is cut off rather than overflowing',
+        (tester) async {
+      // Dropping the tick left the name on its own; it still has to stay on
+      // one line inside the 190px card.
+      final shop = SuggestedShop.fromJson({
+        ...json(distance: 4.3),
+        'shop_name': 'Nimal Hardware and General Trading Centre, Pitipana',
+      });
+      await show(tester, shop);
+
+      final name = tester.widget<Text>(find.text(shop.name));
+      expect(name.maxLines, 1);
+      expect(name.overflow, TextOverflow.ellipsis);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

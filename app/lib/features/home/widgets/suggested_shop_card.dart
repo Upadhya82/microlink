@@ -103,23 +103,18 @@ class SuggestedShopCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            shop.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Icon(
-                          Icons.verified_rounded,
-                          size: 16,
-                          color: context.appColors.success,
-                        ),
-                      ],
+                    // No verified tick. A suggestion is a place neighbours
+                    // say exists, not a shop anyone has checked -- it has no
+                    // owner, no listing and no products. The tick here was
+                    // painted unconditionally, so every suggestion claimed a
+                    // standing the real shop cards never grant: those show
+                    // nothing when verified and a "Not verified" chip when
+                    // not. The SUGGESTED pill already says what this is.
+                    Text(
+                      shop.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 6),
                     Row(
