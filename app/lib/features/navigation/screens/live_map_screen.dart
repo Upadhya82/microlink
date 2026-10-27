@@ -777,20 +777,21 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                   Expanded(
                     child: _isAgent
                         ? const _AgentMapTitle()
-                        : AreaSearchField(onAreaSelected: _onAreaSelected),
+                        : AreaSearchField(
+                            onAreaSelected: _onAreaSelected,
+                            // A shop picked by name goes straight to its
+                            // page. Finding the shop and then having to
+                            // hunt for it again on the map would be a
+                            // worse answer than the search gave.
+                            onShopSelected: (shop) => Navigator.pushNamed(
+                              context,
+                              AppRoutes.shopDetail,
+                              arguments: ShopDetailArgs(shop.id),
+                            ),
+                          ),
                   ),
                 ],
               ),
-              if (!_isAgent)
-                Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.sm),
-                  child: MapCategoryChips(
-                    selected: _categoryFilter,
-                    counts: _categoryCounts,
-                    onSelected: (category) =>
-                        setState(() => _categoryFilter = category),
-                  ),
-                ),
               if (locationNotice != null)
                 Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.sm),
@@ -952,6 +953,10 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                     )
                   : _NearbyShopsSheet(
                       shops: _visibleShops,
+                      allCategories: _categoryCounts.keys.toList()..sort(),
+                      selectedCategory: _categoryFilter,
+                      onCategorySelected: (category) =>
+                          setState(() => _categoryFilter = category),
                       areaLabel: _areaLabel,
                       loading: _shopsLoading,
                       onShopTapped: _onShopTapped,
@@ -1402,6 +1407,17 @@ class _NearbyShopsSheet extends StatelessWidget {
   final void Function(Shop) onOpenShop;
   final VoidCallback onPickDeliveryLocation;
 
+  /// Every category loaded around here, NOT just the ones left after the
+  /// filter. The legend is built from this: taken from the filtered list it
+  /// would shrink to the one chosen category the moment a filter was set,
+  /// leaving no way to switch to another one.
+  final List<String> allCategories;
+
+  /// The category being filtered on, and how to change it -- shared with
+  /// the chip strip over the map so the two rows always agree.
+  final String? selectedCategory;
+  final ValueChanged<String?> onCategorySelected;
+
   const _NearbyShopsSheet({
     required this.shops,
     required this.areaLabel,
@@ -1409,6 +1425,9 @@ class _NearbyShopsSheet extends StatelessWidget {
     required this.onShopTapped,
     required this.onOpenShop,
     required this.onPickDeliveryLocation,
+    required this.allCategories,
+    required this.selectedCategory,
+    required this.onCategorySelected,
   });
 
   @override
@@ -1447,10 +1466,13 @@ class _NearbyShopsSheet extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
-          // Legend for the pin colours actually on screen, so they decode to
-          // something instead of being decoration.
+          // Decodes the pin colours, and filters by them. It reads as a row
+          // of chips just like the strip over the map, so it takes taps too
+          // rather than ignoring them and looking broken.
           CategoryLegend(
-            categories: {for (final s in shops) s.category}.toList()..sort(),
+            categories: allCategories,
+            selected: selectedCategory,
+            onSelected: onCategorySelected,
           ),
           const SizedBox(height: AppSpacing.sm),
           if (!loading && shops.isEmpty)

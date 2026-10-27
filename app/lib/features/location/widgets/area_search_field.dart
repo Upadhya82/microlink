@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors_extension.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/utils/category_style.dart';
 
 /// An area anywhere in Sri Lanka, resolved from a typed name.
 /// Mirrors the `landmark` block of shop-service's `LandmarkSearchResponse`.
@@ -22,16 +25,59 @@ class SearchedArea {
   });
 }
 
+/// One shop matching what has been typed, enough to list it and open it.
+class ShopMatch {
+  final String id;
+  final String name;
+  final String address;
+  final String category;
+
+  const ShopMatch({
+    required this.id,
+    required this.name,
+    required this.address,
+    required this.category,
+  });
+
+  factory ShopMatch.fromJson(Map<String, dynamic> json) => ShopMatch(
+        id: json['id'] as String,
+        name: json['name'] as String? ?? '',
+        address: json['address'] as String? ?? '',
+        category: json['category'] as String? ?? 'other',
+      );
+}
+
 /// The floating pill search bar used on top of a map, for jumping to any
 /// town or landmark in Sri Lanka.
 ///
-/// Backed by `GET /shops/landmark`, which geocodes through OpenStreetMap
-/// restricted to Sri Lanka and falls back to a built-in list of well-known
-/// places when the geocoder is slow or unreachable -- so this keeps working
-/// on a poor rural connection, which is the point.
+/// It does two different jobs, because people type two different things
+/// into one box:
+///
+/// * **Shops, as you type.** `GET /shops?q=` matches shop names, addresses,
+///   categories and product names, so the matches appear underneath and
+///   tapping one opens that shop's page. Without this the box could only
+///   find places, and a search for a shop by name either returned "we could
+///   not find that place" or -- worse -- quietly matched a town hiding
+///   inside the name and moved the map somewhere unrelated. "diyagama
+///   bakers" used to land on the town of Diyagama and list whatever was
+///   near it, which looks like a result and is not one.
+/// * **Places, on Enter.** `GET /shops/landmark` geocodes through
+///   OpenStreetMap restricted to Sri Lanka and falls back to a built-in
+///   list of well-known places when the geocoder is slow or unreachable --
+///   so this keeps working on a poor rural connection, which is the point.
+///
+/// Enter is left meaning "go to this area" rather than "open the first
+/// shop": `/shops?q=` matches addresses too, so pressing Enter on
+/// "Homagama" would otherwise open some shop in Homagama instead of moving
+/// the map there. Tapping is how you choose a shop; Enter is how you choose
+/// an area.
 class AreaSearchField extends StatefulWidget {
   final String hintText;
   final ValueChanged<SearchedArea> onAreaSelected;
+
+  /// A shop was picked from the suggestions. The screen decides what that
+  /// means -- the live map opens the shop's page.
+  final ValueChanged<ShopMatch>? onShopSelected;
 
   /// Radius asked for when counting shops near the match.
   final double radiusKm;
@@ -39,7 +85,8 @@ class AreaSearchField extends StatefulWidget {
   const AreaSearchField({
     super.key,
     required this.onAreaSelected,
-    this.hintText = 'Search any area in Sri Lanka',
+    this.onShopSelected,
+    this.hintText = 'Search a shop or any area in Sri Lanka',
     this.radiusKm = 5,
   });
 
@@ -54,11 +101,82 @@ class _AreaSearchFieldState extends State<AreaSearchField> {
   bool _searching = false;
   String? _error;
 
+  List<ShopMatch> _matches = const [];
+  bool _matching = false;
+  Timer? _debounce;
+
+  /// Guards against an earlier, slower request overwriting the matches for
+  /// what is being typed now.
+  int _requestId = 0;
+
   @override
   void dispose() {
+    _debounce?.cancel();
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  /// Look for shops a short moment after typing stops. A request per
+  /// keystroke would be several a second on a name like "thusitha", most of
+  /// them already stale before they land.
+  void _onChanged(String value) {
+    if (_error != null) setState(() => _error = null);
+    _debounce?.cancel();
+
+    final query = value.trim();
+    if (query.length < 2) {
+      setState(() {
+        _matches = const [];
+        _matching = false;
+      });
+      return;
+    }
+
+    setState(() => _matching = true);
+    _debounce = Timer(const Duration(milliseconds: 300), () => _findShops(query));
+  }
+
+  Future<void> _findShops(String query) async {
+    final id = ++_requestId;
+    try {
+      final response = await ApiClient.instance.get(
+        '/shops',
+        query: {'q': query, 'limit': 6},
+      );
+      if (!mounted || id != _requestId) return;
+      final rows = response as List;
+      setState(() {
+        _matches = rows
+            .map((e) => ShopMatch.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList();
+        _matching = false;
+      });
+    } catch (_) {
+      if (!mounted || id != _requestId) return;
+      // Suggestions are a convenience: a failure here leaves the box usable
+      // for the area search rather than putting an error in the way.
+      setState(() {
+        _matches = const [];
+        _matching = false;
+      });
+    }
+  }
+
+  void _openShop(ShopMatch shop) {
+    _focusNode.unfocus();
+    setState(() => _matches = const []);
+    widget.onShopSelected?.call(shop);
+  }
+
+  void _clear() {
+    _debounce?.cancel();
+    _controller.clear();
+    setState(() {
+      _error = null;
+      _matches = const [];
+      _matching = false;
+    });
   }
 
   Future<void> _search() async {
@@ -98,9 +216,12 @@ class _AreaSearchFieldState extends State<AreaSearchField> {
       if (!mounted) return;
       setState(() {
         _searching = false;
-        // 404 is by far the likeliest failure here and the generic
-        // "we could not find that" wording fits the rest too.
-        _error = 'We could not find that place. Try a nearby town.';
+        // 404 is by far the likeliest failure here. The wording names both
+        // things the box can do, because "try a nearby town" was baffling
+        // advice to somebody who had just typed a shop's name.
+        _error = _matches.isEmpty
+            ? 'No shop or place found for that. Try a shop name, or a nearby town.'
+            : 'That is not a place -- tap one of the shops below instead.';
       });
     }
   }
@@ -130,9 +251,7 @@ class _AreaSearchFieldState extends State<AreaSearchField> {
                     focusNode: _focusNode,
                     textInputAction: TextInputAction.search,
                     onSubmitted: (_) => _search(),
-                    onChanged: (_) {
-                      if (_error != null) setState(() => _error = null);
-                    },
+                    onChanged: _onChanged,
                     decoration: InputDecoration(
                       hintText: widget.hintText,
                       border: InputBorder.none,
@@ -141,7 +260,7 @@ class _AreaSearchFieldState extends State<AreaSearchField> {
                     ),
                   ),
                 ),
-                if (_searching)
+                if (_searching || _matching)
                   const SizedBox(
                     width: 18,
                     height: 18,
@@ -150,16 +269,64 @@ class _AreaSearchFieldState extends State<AreaSearchField> {
                 else if (_controller.text.isNotEmpty)
                   InkWell(
                     customBorder: const CircleBorder(),
-                    onTap: () {
-                      _controller.clear();
-                      setState(() => _error = null);
-                    },
+                    onTap: _clear,
                     child: Icon(Icons.close, size: 18, color: colors.textSecondary),
                   ),
               ],
             ),
           ),
         ),
+        if (_matches.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            child: Material(
+              color: colorScheme.surface,
+              borderRadius: BorderRadius.circular(AppRadius.input),
+              elevation: 3,
+              shadowColor: Colors.black.withValues(alpha: 0.15),
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _matches.length,
+                separatorBuilder: (_, _) => Divider(
+                  height: 1,
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                ),
+                itemBuilder: (context, index) {
+                  final shop = _matches[index];
+                  final style = categoryStyle(context, shop.category);
+                  return ListTile(
+                    dense: true,
+                    leading: CircleAvatar(
+                      radius: 16,
+                      backgroundColor: style.container,
+                      child: Icon(
+                        categoryIcon(shop.category),
+                        size: 17,
+                        color: style.onContainer,
+                      ),
+                    ),
+                    title: Text(
+                      shop.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Text(
+                      shop.address.isEmpty
+                          ? categoryLabel(shop.category)
+                          : shop.address,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: colors.textSecondary),
+                    ),
+                    onTap: () => _openShop(shop),
+                  );
+                },
+              ),
+            ),
+          ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.only(top: AppSpacing.sm),

@@ -247,14 +247,40 @@ class MyLocationDot extends StatelessWidget {
 
 /// Horizontal legend of the categories currently on screen, so the pin
 /// colours are decodable instead of decorative.
+///
+/// Pass [onSelected] to make it filter as well as explain. It looks like a
+/// row of chips and sits a few hundred pixels below the chip strip that
+/// does filter, so people tap it expecting the same thing -- and until it
+/// took taps, nothing happened and the map looked broken. Selecting a
+/// category again clears the filter, exactly as the strip above does, and
+/// the two stay in step because both are driven by the one [selected]
+/// value on the screen.
+///
+/// Without [onSelected] it stays what it was: a passive key for the pin
+/// colours.
 class CategoryLegend extends StatelessWidget {
   final List<String> categories;
 
-  const CategoryLegend({super.key, required this.categories});
+  /// The category being filtered on, or null for all of them. Only used to
+  /// show which chip is active; the screen owns the value.
+  final String? selected;
+
+  /// Called with the tapped category, or null when the filter is cleared.
+  /// Null makes the legend display-only.
+  final ValueChanged<String?>? onSelected;
+
+  const CategoryLegend({
+    super.key,
+    required this.categories,
+    this.selected,
+    this.onSelected,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (categories.isEmpty) return const SizedBox.shrink();
+    final colorScheme = Theme.of(context).colorScheme;
+
     return SizedBox(
       height: 26,
       child: ListView.separated(
@@ -264,26 +290,52 @@ class CategoryLegend extends StatelessWidget {
         itemBuilder: (context, index) {
           final category = categories[index];
           final style = categoryStyle(context, category);
-          return Container(
+          final isSelected = category == selected;
+
+          // The selected chip borrows the primary colour the strip above
+          // uses, so one glance at either row says the same thing.
+          final background = isSelected ? colorScheme.primary : style.container;
+          final foreground =
+              isSelected ? colorScheme.onPrimary : style.onContainer;
+
+          final content = Padding(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-            decoration: BoxDecoration(
-              color: style.container,
-              borderRadius: BorderRadius.circular(999),
-            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(categoryIcon(category), size: 13, color: style.onContainer),
+                Icon(categoryIcon(category), size: 13, color: foreground),
                 const SizedBox(width: 5),
                 Text(
                   categoryLabel(category),
                   style: TextStyle(
                     fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: style.onContainer,
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                    color: foreground,
                   ),
                 ),
               ],
+            ),
+          );
+
+          if (onSelected == null) {
+            return Container(
+              decoration: BoxDecoration(
+                color: background,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: content,
+            );
+          }
+
+          return Material(
+            color: background,
+            borderRadius: BorderRadius.circular(999),
+            child: InkWell(
+              // Tapping the active chip clears the filter, so there is no
+              // separate "All" chip to hunt for.
+              onTap: () => onSelected!(isSelected ? null : category),
+              borderRadius: BorderRadius.circular(999),
+              child: content,
             ),
           );
         },
