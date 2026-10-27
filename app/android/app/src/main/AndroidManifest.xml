@@ -13,7 +13,7 @@
 
     <!-- usesCleartextTraffic: the gateway is served over plain http on the
          development machine's LAN address, and Android has blocked cleartext
-         by default since Android 9 -- without this every request fails with
+         by default since Android 9, so without this every request fails with
          no useful message. Take it out the moment the backend is behind
          https, or the app will happily keep sending tokens in the clear. -->
     <application
