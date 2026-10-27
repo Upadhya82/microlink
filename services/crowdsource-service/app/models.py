@@ -112,6 +112,9 @@ class NewShopReport(Base):
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
+    phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    opening_time: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    closing_time: Mapped[str | None] = mapped_column(String(10), nullable=True)
     status: Mapped[ShopReportStatus] = mapped_column(
         Enum(ShopReportStatus, name="shop_report_status"),
         default=ShopReportStatus.pending,
@@ -120,6 +123,10 @@ class NewShopReport(Base):
     # Which shop an approval actually produced, so a redelivered
     # shop_report.approved event cannot create the same shop twice.
     created_shop_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Set when the phone number given belongs to a MicroLink account: the
+    # suggestion then goes straight to the admins ("fast track") instead of
+    # asking the neighbours to confirm it.
+    phone_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # A photo of the shop front helps the admin decide without visiting.
     photo: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
     has_photo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -191,4 +198,66 @@ class ShopReportConfirmation(Base):
     user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     # True = "yes, this shop is there", False = "no, there is nothing here".
     confirms: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    comment: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class ShopReportCommentReply(Base):
+    """A reply to a neighbour's comment on a shop suggestion.
+
+    Any signed-in user can reply, so people who did not confirm the shop can
+    still join the conversation. Plain id columns rather than foreign keys,
+    so tidying up old reports or comments never trips over a reply.
+    """
+
+    __tablename__ = "shop_report_comment_replies"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    report_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    # The ShopReportConfirmation (the comment) this answers.
+    comment_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    text: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class SuggestionCommentReply(Base):
+    """A reply to a neighbour's comment on a shop suggestion.
+
+    Any signed-in user can reply, on pending and approved suggestions alike,
+    so a conversation can grow under each comment ("It opens at 7, not 8").
+    """
+
+    __tablename__ = "suggestion_comment_replies"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    report_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("new_shop_reports.id"), nullable=False, index=True
+    )
+    # The comment (a confirmation row with text) this answers.
+    comment_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("shop_report_confirmations.id"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    text: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class SuggestionGeneralComment(Base):
+    """A comment anyone signed in can leave on a shop suggestion.
+
+    Separate from ShopReportConfirmation (one "is it there?" answer per
+    neighbour, with an optional comment): this is open discussion. A row
+    with `parent_id` set is a reply to another general comment.
+    """
+
+    __tablename__ = "suggestion_general_comments"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    report_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("new_shop_reports.id"), nullable=False, index=True
+    )
+    parent_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    text: Mapped[str] = mapped_column(String(500), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

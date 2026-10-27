@@ -10,8 +10,11 @@ import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/branded_app_bar.dart';
+import '../../../core/models/shop.dart' show formatCategoryLabel;
+import '../../../core/widgets/list_filter_bar.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/stagger_in.dart';
+import '../widgets/suggestion_comments.dart';
 
 /// "Confirm shops near you" (item 6).
 ///
@@ -32,6 +35,8 @@ class ConfirmShopsScreen extends StatefulWidget {
 
 class _ConfirmShopsScreenState extends State<ConfirmShopsScreen> {
   ViewState<List<Map<String, dynamic>>> _state = const ViewLoading();
+  String _category = 'all';
+  String _query = '';
 
   /// Reports being answered, so a double tap cannot send two answers.
   final Set<String> _answering = {};
@@ -46,21 +51,10 @@ class _ConfirmShopsScreenState extends State<ConfirmShopsScreen> {
     setState(() => _state = const ViewLoading());
     try {
       final location = await LocationService.instance.currentPosition();
-      if (!location.isReal) {
-        // Falling back to Colombo here would ask people to vouch for shops
-        // on the other side of the country, which is worse than saying so.
-        if (!mounted) return;
-        setState(
-          () => _state = const ViewError(
-            'MicroLink needs your location to find shops reported near you.',
-          ),
-        );
-        return;
-      }
       final point = location.position;
       final response = await ApiClient.instance.get(
         '/crowdsource/shop-reports/nearby'
-        '?lat=${point.latitude}&lng=${point.longitude}&radius_km=3',
+        '?lat=${point.latitude}&lng=${point.longitude}&radius_km=15',
       );
       final rows = (response as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
@@ -78,14 +72,18 @@ class _ConfirmShopsScreenState extends State<ConfirmShopsScreen> {
     }
   }
 
-  Future<void> _answer(Map<String, dynamic> report, bool confirms) async {
+  Future<void> _answer(Map<String, dynamic> report, bool confirms, {String? comment}) async {
     final id = report['id'] as String;
     if (_answering.contains(id)) return;
     setState(() => _answering.add(id));
     try {
+      final body = <String, dynamic>{'confirms': confirms};
+      if (comment != null && comment.trim().isNotEmpty) {
+        body['comment'] = comment.trim();
+      }
       await ApiClient.instance.post(
         '/crowdsource/shop-reports/$id/confirm',
-        body: {'confirms': confirms},
+        body: body,
       );
       if (!mounted) return;
       // Answered reports drop off the server's list, so take it off this one
@@ -101,7 +99,7 @@ class _ConfirmShopsScreenState extends State<ConfirmShopsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            confirms ? 'Thanks — marked as there.' : 'Thanks — marked as not there.',
+            confirms ? 'Thanks — shop confirmed!' : 'Thanks — marked as not there.',
           ),
         ),
       );
@@ -111,6 +109,52 @@ class _ConfirmShopsScreenState extends State<ConfirmShopsScreen> {
           .showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       if (mounted) setState(() => _answering.remove(id));
+    }
+  }
+
+  Future<void> _promptAnswer(Map<String, dynamic> report, bool confirms) async {
+    final commentCtrl = TextEditingController();
+    final agreed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(confirms ? 'Confirm Shop' : 'Report as Not Found'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              confirms
+                  ? 'Do you confirm that "${report['shop_name']}" is located here?'
+                  : 'Confirm that "${report['shop_name']}" is not here?',
+              style: Theme.of(ctx).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              controller: commentCtrl,
+              maxLines: 2,
+              maxLength: 250,
+              decoration: const InputDecoration(
+                labelText: 'Add a comment (Optional)',
+                hintText: 'e.g. Owner name, contact number, opening status...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(confirms ? 'Yes, Confirm' : 'Submit'),
+          ),
+        ],
+      ),
+    );
+    if (agreed == true) {
+      await _answer(report, confirms, comment: commentCtrl.text.trim());
     }
   }
 
@@ -130,7 +174,17 @@ class _ConfirmShopsScreenState extends State<ConfirmShopsScreen> {
               'answered about the ones there are.',
           emptyIcon: Icons.how_to_reg_outlined,
           loadingSkeleton: const SkeletonList(itemCount: 3, itemHeight: 120),
-          builder: (context, reports) => ListView.separated(
+          builder: (context, allReports) {
+            final reports = allReports.where((r) {
+              if (_category != 'all' && r['category']?.toString() != _category) return false;
+              return matchesQuery(_query, [
+                r['shop_name']?.toString(),
+                r['address']?.toString(),
+                r['category']?.toString(),
+              ]);
+            }).toList();
+            final byCategory = countBy(allReports, (Map<String, dynamic> r) => r['category']?.toString() ?? '');
+            return ListView.separated(
             padding: const EdgeInsets.all(AppSpacing.lg),
             itemCount: reports.length + 1,
             separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
@@ -138,12 +192,38 @@ class _ConfirmShopsScreenState extends State<ConfirmShopsScreen> {
               if (index == 0) {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                  child: Text(
-                    'Neighbours reported these shops. Telling us whether they '
-                    'are really there is what gets them onto the map.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: context.appColors.textSecondary,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Neighbours reported these shops. Telling us whether they '
+                        'are really there is what gets them onto the map.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: context.appColors.textSecondary,
+                            ),
+                      ),
+                      ListFilterBar<String>(
+                        padding: const EdgeInsets.only(top: AppSpacing.md),
+                        searchHint: 'Search shop name or address',
+                        onSearchChanged: (value) => setState(() => _query = value),
+                        selected: _category,
+                        onSelected: (value) => setState(() => _category = value),
+                        options: [
+                          FilterOption('all', 'All', count: allReports.length),
+                          for (final category in byCategory.keys.where((c) => c.isNotEmpty))
+                            FilterOption(
+                              category,
+                              formatCategoryLabel(category),
+                              count: byCategory[category],
+                            ),
+                        ],
+                      ),
+                      if (reports.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.only(top: AppSpacing.lg),
+                          child: Text('No shops match this filter.'),
                         ),
+                    ],
                   ),
                 );
               }
@@ -153,11 +233,12 @@ class _ConfirmShopsScreenState extends State<ConfirmShopsScreen> {
                 child: _ReportCard(
                   report: report,
                   busy: _answering.contains(report['id']),
-                  onAnswer: (confirms) => _answer(report, confirms),
+                  onAnswer: (confirms) => _promptAnswer(report, confirms),
                 ),
               );
             },
-          ),
+          );
+          },
         ),
       ),
     );
@@ -237,6 +318,59 @@ class _ReportCard extends StatelessWidget {
               ),
             ],
           ),
+          if (_namedComments(report).isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Neighbour feedback:',
+                    style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 2),
+                  // Who said it, then what they said.
+                  for (final c in _namedComments(report).take(2))
+                    Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: '${c.$1}: ',
+                            style: textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          TextSpan(
+                            text: '"${c.$2}"',
+                            style: textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
+                          ),
+                        ],
+                      ),
+                    ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: () => showSuggestionComments(
+                        context,
+                        reportId: report['id'].toString(),
+                        shopName: report['shop_name']?.toString() ?? 'Suggested shop',
+                      ),
+                      icon: const Icon(Icons.forum_outlined, size: 16),
+                      label: const Text('See all comments & reply'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           Row(
             children: [
@@ -261,4 +395,24 @@ class _ReportCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// (name, comment) pairs for a report's comments. Uses the named
+/// `comments_detail` when the server sends it, and falls back to the plain
+/// `comments` list (shown as "A neighbour") from an older server.
+List<(String, String)> _namedComments(Map<String, dynamic> report) {
+  final detail = report['comments_detail'] as List<dynamic>?;
+  if (detail != null && detail.isNotEmpty) {
+    return [
+      for (final item in detail)
+        (
+          (item as Map)['author_name']?.toString() ?? 'A neighbour',
+          item['comment']?.toString() ?? '',
+        ),
+    ];
+  }
+  return [
+    for (final c in (report['comments'] as List<dynamic>? ?? const []))
+      ('A neighbour', c.toString()),
+  ];
 }

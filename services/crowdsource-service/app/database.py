@@ -34,6 +34,8 @@ _COLUMN_MIGRATIONS: list[str] = [
     # photo of the reported shop front
     "ALTER TABLE new_shop_reports ADD COLUMN IF NOT EXISTS photo BYTEA",
     "ALTER TABLE new_shop_reports ADD COLUMN IF NOT EXISTS has_photo BOOLEAN NOT NULL DEFAULT FALSE",
+    # fast track: the suggested phone number belongs to a MicroLink account
+    "ALTER TABLE new_shop_reports ADD COLUMN IF NOT EXISTS phone_user_id VARCHAR(36)",
 ]
 
 

@@ -6,7 +6,7 @@ live map, owner dashboard, recommendation-service, smoke test) keep working.
 New fields are all optional or have defaults.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -70,6 +70,7 @@ class ShopPhotoCreateRequest(BaseModel):
 
 class ShopVerifyRequest(BaseModel):
     is_verified: bool = True
+    reason: str | None = None
 
 
 class ShopConfirmRequest(BaseModel):
@@ -153,7 +154,7 @@ class ShopResponse(BaseModel):
     availability: str = "none"  # none | all_in_stock | limited | all_out
     matched_product: str | None = None  # set when the search text matched a product name
     # Item 10: how many products this shop has that customers can actually
-    # see (min_listable_stock units or more). The owner dashboard and the
+    # see (not hidden, and min_listable_stock units or more). The owner dashboard and the
     # admin review screen show it as "N of 5".
     listable_product_count: int = 0
     # Item 4: this shop keeps drivers waiting, or is often late. Computed by
@@ -242,6 +243,8 @@ class ProductUpdateRequest(BaseModel):
     discount_percent: int | None = Field(default=None, ge=0, le=90)
     stock_status: StockStatusLiteral | None = None
     is_available: bool | None = None
+    # false = "Unhide" (needs at least one item in stock); true = hide it.
+    is_hidden: bool | None = None
 
 
 class ProductResponse(BaseModel):
@@ -259,6 +262,9 @@ class ProductResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     stock_status: str = "in_stock"
+    # Only the owner and admins ever receive a hidden product.
+    is_hidden: bool = False
+    hidden_reason: str | None = None
     has_image: bool = False
     image_url: str | None = None
 
@@ -315,6 +321,20 @@ class ShopAnalyticsResponse(BaseModel):
     rating_count: int = 0
     stock_summary: dict[str, int] = Field(default_factory=dict)
     peak_hours: list[dict] = Field(default_factory=list)
+
+
+class ShopAnalyticsHistoryResponse(BaseModel):
+    """Views and search impressions over a chosen period (owner analytics filters)."""
+
+    shop_id: str
+    shop_created_at: datetime | None = None
+    start: date
+    end: date
+    granularity: str
+    # [{"period": "2026-10", "views": 12, "search_impressions": 40}, ...]
+    buckets: list[dict]
+    total_views: int = 0
+    total_search_impressions: int = 0
 
 
 # ------------------------------------------------------- stock reservations

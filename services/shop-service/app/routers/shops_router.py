@@ -156,8 +156,8 @@ def _apply_filters(
 def _product_counts(db: Session, shop_ids: list[str]) -> dict[str, dict[str, int]]:
     """Per shop, how many products of each stock status a customer can see.
 
-    Only listable products are counted, so a card never advertises stock that
-    the product list then hides (settings.min_listable_stock).
+    Only products customers can see are counted (not hidden, and in stock),
+    so a card never advertises a product the product list then hides.
     """
     if not shop_ids:
         return {}
@@ -165,7 +165,7 @@ def _product_counts(db: Session, shop_ids: list[str]) -> dict[str, dict[str, int
         db.query(Product.shop_id, Product.stock_status, func.count(Product.id))
         .filter(
             Product.shop_id.in_(shop_ids),
-            Product.stock_quantity >= settings.min_listable_stock,
+            listings.visible_to_customers(),
         )
         .group_by(Product.shop_id, Product.stock_status)
         .all()
@@ -204,7 +204,7 @@ def _matched_products(db: Session, shop_ids: list[str], q: str | None) -> dict[s
         .filter(
             Product.shop_id.in_(shop_ids),
             Product.name.ilike(_like(q), escape="\\"),
-            Product.stock_quantity >= settings.min_listable_stock,
+            listings.visible_to_customers(),
         )
         .order_by(Product.name)
         .all()
@@ -415,7 +415,7 @@ async def list_shops(
         # everything still waiting, newest first, not the best match nearby.
         rows = (
             db.query(Shop)
-            .filter(Shop.is_verified.is_(False))
+            .filter(Shop.is_verified.is_(False), Shop.status != "closed")
             .order_by(Shop.created_at.desc())
             .limit(limit)
             .all()
@@ -561,6 +561,10 @@ async def verify_shop(
     shop.verified_at = datetime.now(timezone.utc) if payload.is_verified else None
     shop.verified_by = current_user.id if payload.is_verified else None
     shop.verified_via = community.VERIFIED_VIA_ADMIN if payload.is_verified else None
+    if not payload.is_verified:
+        shop.status_reason = payload.reason or "Left Pending: Under Admin Review"
+    else:
+        shop.status_reason = None
     db.commit()
     db.refresh(shop)
 
@@ -576,13 +580,13 @@ async def verify_shop(
     if shop.owner_id:
         await notify_users(
             [shop.owner_id],
-            "Your shop has been verified" if shop.is_verified else "Your shop needs attention",
+            "Your shop has been verified" if shop.is_verified else "Shop Review Update: Left Pending",
             (
                 f"{shop.name} is now verified and visible to customers."
                 if shop.is_verified
-                else f"{shop.name} is no longer marked as verified. Contact support for details."
+                else f"Admin reviewed {shop.name}. Status note: {shop.status_reason or 'Pending review.'}"
             ),
-            kind="account",
+            kind="shop",
             link={"route": "shop", "id": shop.id},
         )
     return _build_responses(db, [_Row(shop)], None)[0]
@@ -836,6 +840,15 @@ async def update_shop_status(
             "reason": shop.status_reason,
         },
     )
+    if shop.owner_id and current_user.role == "admin":
+        is_reject = new_status == "closed"
+        title = "Shop Registration Rejected" if is_reject else f"Shop Status Updated: {new_status}"
+        body = (
+            f"Your shop '{shop.name}' was rejected by administrator. Reason: {shop.status_reason or 'No reason provided.'}"
+            if is_reject
+            else f"Admin updated status of '{shop.name}' to {new_status}. Note: {shop.status_reason or 'Updated'}"
+        )
+        await notify_users([shop.owner_id], title, body, kind="shop", link={"route": "shop", "id": shop.id})
     return _build_responses(db, [_Row(shop)], None)[0]
 
 

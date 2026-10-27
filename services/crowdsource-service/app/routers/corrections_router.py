@@ -134,13 +134,14 @@ async def update_correction_status(
         )
 
     approved = report.status == ShopReportStatus.approved
+    reason_text = f" Reason: {payload.reason}" if payload.reason else ""
     await notify_users(
         [report.reporter_id],
-        "Your suggested correction was applied" if approved else "Your suggested correction was reviewed",
+        "Your suggested correction was applied" if approved else "Your suggested correction was rejected",
         (
             f"Thanks -- the details you sent for {report.shop_name or 'a shop'} are now live."
             if approved
-            else f"An admin reviewed your suggestion for {report.shop_name or 'a shop'} and did not apply it."
+            else f"An admin reviewed your correction for {report.shop_name or 'a shop'} and rejected it.{reason_text}"
         ),
         kind="report",
         link={"route": "shop", "id": report.shop_id},

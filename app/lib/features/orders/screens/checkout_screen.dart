@@ -350,6 +350,16 @@ class _CartLineRow extends StatelessWidget {
                   ),
                 ],
               ),
+              // How many the shop has, so the customer knows the limit.
+              Text(
+                line.product.availabilityLabel,
+                style: textTheme.labelSmall?.copyWith(
+                  color: line.product.stockQuantity <= AppConstants.lowStockThreshold
+                      ? colors.warning
+                      : colors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
         ),
@@ -362,11 +372,15 @@ class _CartLineRow extends StatelessWidget {
         Text('${line.quantity}', style: textTheme.titleSmall),
         IconButton(
           visualDensity: VisualDensity.compact,
-          onPressed: () => cart.add(
-            line.product,
-            shopId: cart.shopId ?? line.product.shopId,
-            shopName: cart.shopName ?? '',
-          ),
+          // Greyed out once the cart holds everything the shop has, the
+          // same as on the shop page.
+          onPressed: line.quantity >= line.product.stockQuantity
+              ? null
+              : () => cart.add(
+                    line.product,
+                    shopId: cart.shopId ?? line.product.shopId,
+                    shopName: cart.shopName ?? '',
+                  ),
           icon: const Icon(Icons.add_circle_outline, size: 20),
           tooltip: 'Add one',
         ),

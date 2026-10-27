@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -85,6 +87,70 @@ async def list_admin_ids(db: Session = Depends(get_db)):
     return {"admin_ids": [row.id for row in rows]}
 
 
+def phone_key(phone: str | None) -> str:
+    """The last 9 digits of a Sri Lankan number, however it was typed.
+
+    "077 123 4567", "0771234567", "+94 77 123 4567" and "94771234567" all
+    give "771234567", so a suggestion's phone matches the account's.
+    """
+    digits = re.sub(r"\D", "", phone or "")
+    return digits[-9:] if len(digits) >= 9 else ""
+
+
+@router.get("/internal/by-phone")
+async def find_user_by_phone(
+    phone: str = Query(default="", max_length=30),
+    db: Session = Depends(get_db),
+):
+    """Is this phone number on a MicroLink account? For crowdsource-service.
+
+    When someone suggests a shop with a phone number that already belongs to
+    a user, the suggestion goes straight to the admins instead of asking the
+    neighbours. Internal: api-gateway blocks /users/internal/*. Returns the
+    id, name and role only -- never the email address.
+    """
+    key = phone_key(phone)
+    if not key:
+        return {"user": None}
+    candidates = (
+        db.query(User.id, User.full_name, User.role, User.phone)
+        .filter(User.phone.isnot(None), User.is_active.is_(True))
+        .all()
+    )
+    for row in candidates:
+        if phone_key(row.phone) == key:
+            role = getattr(row.role, "value", row.role)
+            return {"user": {"id": row.id, "full_name": row.full_name, "role": role}}
+    return {"user": None}
+
+
+_UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+
+@router.get("/internal/names")
+async def list_user_names(
+    ids: str = Query(default="", max_length=8000, description="Comma-separated user ids"),
+    db: Session = Depends(get_db),
+):
+    """Full names for a few user ids, so crowdsource-service can show who
+    commented on a shop suggestion.
+
+    Internal, like admin-ids above: api-gateway blocks /users/internal/*.
+    Names only -- no email addresses, phone numbers or roles.
+    """
+    # Only well-formed ids reach the query: a stray word would make
+    # PostgreSQL reject the whole lookup.
+    wanted = [
+        part.strip()
+        for part in ids.split(",")
+        if _UUID_RE.fullmatch(part.strip())
+    ][:200]
+    if not wanted:
+        return {"names": {}}
+    rows = db.query(User.id, User.full_name).filter(User.id.in_(wanted)).all()
+    return {"names": {row.id: row.full_name for row in rows}}
+
+
 @router.get("", response_model=list[UserResponse])
 async def list_users(
     role: UserRole | None = Query(default=None),
@@ -103,7 +169,12 @@ async def list_users(
         # REQ-ADMIN-3: find an account by name or email.
         pattern = f"%{q.strip()}%"
         query = query.filter(or_(User.full_name.ilike(pattern), User.email.ilike(pattern)))
-    return query.order_by(User.created_at.desc()).limit(limit).all()
+    # When reviewing unverified applicants, show delayed/oldest ones first (FIFO)
+    if is_verified is False:
+        query = query.order_by(User.created_at.asc())
+    else:
+        query = query.order_by(User.created_at.desc())
+    return query.limit(limit).all()
 
 
 @router.get("/{user_id}", response_model=UserPublicResponse)

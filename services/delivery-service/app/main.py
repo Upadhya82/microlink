@@ -9,7 +9,7 @@ from app.database import Base, SessionLocal, engine
 from app.expiry import run_expiry_loop
 from app.timeliness import run_timeliness_loop
 from app.migrations import run_startup_migrations
-from app.routers import agents_router, orders_router
+from app.routers import agents_router, internal_router, orders_router, shop_sales_router
 
 logging.basicConfig(level=logging.INFO)
 
@@ -47,6 +47,8 @@ app.add_middleware(
 
 app.include_router(agents_router.router)
 app.include_router(orders_router.router)
+app.include_router(shop_sales_router.router)
+app.include_router(internal_router.router)
 
 
 @app.get("/health")

@@ -236,6 +236,13 @@ class Product(Base):
     # version (in_stock / low_stock / out_of_stock). Kept in step by the service.
     is_available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     stock_status: Mapped[str] = mapped_column(String(20), default="in_stock")
+    # Hidden products are left out of everything customers see. Set
+    # automatically when a customer buys the last item (hidden_reason
+    # "sold_out"); only the owner clears it, with "Unhide" on their dashboard.
+    # A sold-out hide is also undone when the order that caused it is
+    # cancelled, because the item is back on the shelf.
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    hidden_reason: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
@@ -293,6 +300,38 @@ class StockReservation(Base):
     released_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class ProductCategory(Base):
+    """One of the predefined product categories a shop owner picks from.
+
+    Seeded with a default list on first start (app/product_categories.py);
+    an admin adds more, usually by accepting a category owners typed under
+    "Others". `slug` is what a product stores in its `category` column.
+    """
+
+    __tablename__ = "product_categories"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    slug: Mapped[str] = mapped_column(String(60), unique=True, index=True, nullable=False)
+    label: Mapped[str] = mapped_column(String(80), nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class DismissedProductCategory(Base):
+    """An "Others" category an admin looked at and chose not to add.
+
+    Keeps it out of the review list; the products keep their category.
+    """
+
+    __tablename__ = "dismissed_product_categories"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    name_key: Mapped[str] = mapped_column(String(150), unique=True, index=True, nullable=False)
+    dismissed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    dismissed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class ShopExistenceConfirmation(Base):

@@ -11,16 +11,18 @@ Stock status rules (see app/logic.py -> resolve_stock_status):
   * nothing about stock is sent (smoke test)  -> in_stock
 `is_available` is kept in step so older screens keep working.
 
-Listing rule (settings.min_listable_stock, default 5): a product needs at
-least that many units to be created, and customers only see products that
-still have them. Owners and admins always see every product, so stock can
-be refilled.
+Listing rule (settings.min_listable_stock, default 1): a product needs at
+least one unit to be created, and customers see it -- and can order it --
+down to the last item. Selling that last item hides it (is_hidden, see
+app/stock_alerts.py) until the owner sends `is_hidden: false` ("Unhide"),
+which needs at least one item back in stock. Owners and admins always see
+every product, hidden or not, so stock can be refilled.
 """
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app import listings, logic
+from app import listings, logic, stock_alerts
 from app.auth import CurrentUser, get_current_user, get_current_user_optional
 from app.config import settings
 from app.images import ImageRejected, process_image
@@ -72,7 +74,7 @@ async def list_products(
     if stock_status is not None:
         query = query.filter(Product.stock_status == stock_status)
     if not _sees_hidden_products(shop, current_user):
-        query = query.filter(Product.stock_quantity >= settings.min_listable_stock)
+        query = query.filter(listings.visible_to_customers())
     return query.order_by(Product.name).all()
 
 
@@ -153,11 +155,29 @@ async def update_product(
             product.stock_quantity = changes["stock_quantity"]
         product.is_available = logic.is_available_from_stock(product.stock_status)
 
+    # Hide / unhide. Done after the stock change, so an owner can restock and
+    # unhide a sold-out product in the same request.
+    hidden_touched = changes.get("is_hidden") is not None
+    if hidden_touched:
+        if changes["is_hidden"]:
+            product.is_hidden = True
+            product.hidden_reason = stock_alerts.HIDDEN_BY_OWNER
+        else:
+            if (product.stock_quantity or 0) < settings.min_listable_stock:
+                name = product.name
+                db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"{name} has no stock left. Add stock before unhiding it.",
+                )
+            product.is_hidden = False
+            product.hidden_reason = None
+
     db.commit()
     db.refresh(product)
     # Item 10: this edit may have taken the shop below the number of
     # products customers can see.
-    if stock_touched:
+    if stock_touched or hidden_touched:
         await listings.review_product_count(db, db.get(Shop, shop_id))
     return product
 

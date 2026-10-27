@@ -13,6 +13,7 @@ import '../../../core/utils/app_router.dart' show DeliveryTrackingArgs, ShopDeta
 import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/list_filter_bar.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../unread_count_controller.dart';
 import '../../../core/widgets/branded_app_bar.dart';
@@ -27,7 +28,34 @@ class NotificationsScreen extends StatefulWidget {
   State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
+/// Which filter chip a notification kind belongs under.
+String notificationGroup(String kind) => switch (kind) {
+      'order' => 'orders',
+      'shop' || 'shop_alert' => 'shops',
+      'crowdsource' || 'report' => 'community',
+      _ => 'other',
+    };
+
+/// The notifications that match a filter ('all', 'unread', or a group from
+/// [notificationGroup]) and a search.
+List<AppNotification> filterNotifications(
+  List<AppNotification> items, {
+  String filter = 'all',
+  String query = '',
+}) {
+  return items.where((n) {
+    if (filter == 'unread' && n.isRead) return false;
+    if (filter != 'all' && filter != 'unread' && notificationGroup(n.kind) != filter) {
+      return false;
+    }
+    return matchesQuery(query, [n.title, n.body]);
+  }).toList();
+}
+
 class _NotificationsScreenState extends State<NotificationsScreen> {
+  String _filter = 'all';
+  String _query = '';
+
   ViewState<List<AppNotification>> _state = const ViewLoading();
   bool _markingAll = false;
 
@@ -154,6 +182,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         Navigator.pushNamed(context, AppRoutes.driverHome);
       case 'admin':
         Navigator.pushNamed(context, AppRoutes.adminDashboard);
+      case 'shop_owner':
+        // Low-stock and sold-out alerts: the owner's Products tab is where
+        // they restock and unhide.
+        Navigator.pushNamed(context, AppRoutes.shopOwnerDashboard);
+      case 'home':
+        // "New shop near you": it is on Home, under User Suggestions.
+        Navigator.popUntil(context, (route) => route.isFirst);
+      case 'confirm_shops':
+      case 'confirmShops':
+        Navigator.pushNamed(context, AppRoutes.confirmShops);
       case 'login':
         // An account-verified notification: the user needs a fresh token, so
         // there is nowhere useful to send them from here.
@@ -220,21 +258,56 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               'Updates about your orders, shops and reports will show up here.',
           emptyIcon: Icons.notifications_none_rounded,
           loadingSkeleton: const SkeletonList(),
-          builder: (context, items) => ListView.separated(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
-            itemBuilder: (context, index) => _NotificationTile(
-              notification: items[index],
-              style: _kindStyle(context, items[index].kind),
-              timeLabel: _relativeTime(items[index].createdAt),
-              onTap: () {
-                final notification = items[index];
-                _markRead(notification);
-                if (_isTappable(notification)) _openTarget(notification);
-              },
-            ),
-          ),
+          builder: (context, all) {
+            final items = filterNotifications(all, filter: _filter, query: _query);
+            final groups = countBy(all, (AppNotification n) => notificationGroup(n.kind));
+            return Column(
+              children: [
+                ListFilterBar<String>(
+                  searchHint: 'Search notifications',
+                  onSearchChanged: (value) => setState(() => _query = value),
+                  selected: _filter,
+                  onSelected: (value) => setState(() => _filter = value),
+                  options: [
+                    FilterOption('all', 'All', count: all.length),
+                    FilterOption('unread', 'Unread', count: all.where((n) => !n.isRead).length),
+                    if ((groups['orders'] ?? 0) > 0)
+                      FilterOption('orders', 'Orders', count: groups['orders']),
+                    if ((groups['shops'] ?? 0) > 0)
+                      FilterOption('shops', 'Shops', count: groups['shops']),
+                    if ((groups['community'] ?? 0) > 0)
+                      FilterOption('community', 'Community', count: groups['community']),
+                    if ((groups['other'] ?? 0) > 0)
+                      FilterOption('other', 'Account & other', count: groups['other']),
+                  ],
+                ),
+                Expanded(
+                  child: items.isEmpty
+                      ? ListView(
+                          padding: const EdgeInsets.all(AppSpacing.xl),
+                          children: const [
+                            Center(child: Text('No notifications match this filter.')),
+                          ],
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(AppSpacing.lg),
+                          itemCount: items.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
+                          itemBuilder: (context, index) => _NotificationTile(
+                            notification: items[index],
+                            style: _kindStyle(context, items[index].kind),
+                            timeLabel: _relativeTime(items[index].createdAt),
+                            onTap: () {
+                              final notification = items[index];
+                              _markRead(notification);
+                              if (_isTappable(notification)) _openTarget(notification);
+                            },
+                          ),
+                        ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );

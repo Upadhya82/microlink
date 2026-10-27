@@ -10,7 +10,9 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/app_router.dart';
 import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/list_filter_bar.dart';
 import '../../../core/widgets/rating_chip.dart';
+import '../../../core/widgets/shop_filters.dart';
 import '../../shop_discovery/shop_discovery_support.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/branded_app_bar.dart';
@@ -26,6 +28,8 @@ class RecommendedShopsScreen extends StatefulWidget {
 
 class _RecommendedShopsScreenState extends State<RecommendedShopsScreen> {
   ViewState<List<Shop>> _state = const ViewLoading();
+  String _filter = 'all';
+  String _query = '';
   double? _lat;
   double? _lng;
 
@@ -142,7 +146,30 @@ class _RecommendedShopsScreenState extends State<RecommendedShopsScreen> {
                 emptyMessage: "Browse some shops and we'll learn what you like.",
                 emptyIcon: Icons.recommend_outlined,
                 loadingSkeleton: const SkeletonList(itemHeight: 210),
-                builder: (context, shops) => ListView.separated(
+                builder: (context, allShops) {
+                  final shops = filterShops(allShops, filter: _filter, query: _query);
+                  return Column(
+                    children: [
+                      ListFilterBar<String>(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.lg,
+                          0,
+                          AppSpacing.lg,
+                          AppSpacing.md,
+                        ),
+                        searchHint: 'Search recommendations',
+                        onSearchChanged: (value) => setState(() => _query = value),
+                        options: shopFilterOptions(allShops),
+                        selected: _filter,
+                        onSelected: (value) => setState(() => _filter = value),
+                      ),
+                      if (shops.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(AppSpacing.xl),
+                          child: Text('No recommendations match this filter.'),
+                        ),
+                      Expanded(
+                        child: ListView.separated(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.lg,
                     0,
@@ -165,7 +192,11 @@ class _RecommendedShopsScreenState extends State<RecommendedShopsScreen> {
                       ),
                     );
                   },
-                ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ),

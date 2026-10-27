@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import logic
+from app import logic, stock_alerts
 from app.config import settings
 from app.database import Base, get_db
 from app.models import Product, Shop, ShopCategory, StockReservation
@@ -48,6 +48,15 @@ class StockReservationTests(unittest.TestCase):
         app.dependency_overrides[get_db] = override_get_db
         self.client = TestClient(app)
 
+        # Capture owner notifications instead of publishing them to Redis.
+        self.notifications: list[dict] = []
+        self._original_notify = stock_alerts.notify_users
+
+        async def capture(user_ids, title, body, kind="general", link=None):
+            self.notifications.append({"user_ids": user_ids, "title": title, "body": body})
+
+        stock_alerts.notify_users = capture
+
         session = self.Session()
         for shop_id in (SHOP_ID, OTHER_SHOP_ID):
             session.add(
@@ -64,6 +73,7 @@ class StockReservationTests(unittest.TestCase):
         session.close()
 
     def tearDown(self):
+        stock_alerts.notify_users = self._original_notify
         self.engine.dispose()
 
     # --- helpers ---
@@ -101,6 +111,19 @@ class StockReservationTests(unittest.TestCase):
         finally:
             session.close()
 
+    def _hidden(self, product_id: str) -> bool:
+        session = self.Session()
+        try:
+            return session.get(Product, product_id).is_hidden
+        finally:
+            session.close()
+
+    def _customer_names(self) -> list[str]:
+        return [
+            item["name"]
+            for item in self.client.get(f"/shops/{SHOP_ID}/products").json()
+        ]
+
     def _status(self, product_id: str) -> str:
         session = self.Session()
         try:
@@ -128,6 +151,71 @@ class StockReservationTests(unittest.TestCase):
             for item in self.client.get(f"/shops/{SHOP_ID}/products").json()
         ]
         self.assertNotIn("Rice 5kg", names)
+
+    # --- the last item, and running low ---
+    def test_customers_can_order_the_very_last_item(self):
+        product_id = self._product(1, name="Last one")
+        self.assertIn("Last one", self._customer_names())
+        response = self._reserve("order-1", [{"product_id": product_id, "quantity": 1}])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._stock(product_id), 0)
+
+    def test_selling_the_last_item_hides_the_product_and_tells_the_owner(self):
+        product_id = self._product(1, name="Last one")
+        self._reserve("order-1", [{"product_id": product_id, "quantity": 1}])
+        self.assertTrue(self._hidden(product_id))
+        self.assertNotIn("Last one", self._customer_names())
+        self.assertEqual(len(self.notifications), 1)
+        self.assertEqual(self.notifications[0]["user_ids"], ["owner-1"])
+        self.assertIn("Last one", self.notifications[0]["title"])
+        self.assertIn("sold out", self.notifications[0]["title"])
+
+    def test_selling_down_to_five_warns_the_owner_with_the_name(self):
+        product_id = self._product(8, name="Sugar 1kg")
+        self._reserve("order-1", [{"product_id": product_id, "quantity": 3}])
+        self.assertEqual(self._stock(product_id), 5)
+        self.assertFalse(self._hidden(product_id))
+        self.assertEqual(len(self.notifications), 1)
+        self.assertIn("Sugar 1kg", self.notifications[0]["title"])
+        self.assertIn("running low", self.notifications[0]["title"])
+        self.assertIn("Only 5", self.notifications[0]["body"])
+
+    def test_the_low_stock_warning_is_not_repeated_on_every_sale(self):
+        product_id = self._product(6, name="Sugar 1kg")
+        self._reserve("order-1", [{"product_id": product_id, "quantity": 1}])
+        self._reserve("order-2", [{"product_id": product_id, "quantity": 1}])
+        self._reserve("order-3", [{"product_id": product_id, "quantity": 1}])
+        self.assertEqual(len(self.notifications), 1)
+
+    def test_a_sale_that_stays_above_five_sends_nothing(self):
+        product_id = self._product(10)
+        self._reserve("order-1", [{"product_id": product_id, "quantity": 2}])
+        self.assertEqual(self.notifications, [])
+
+    def test_a_hidden_product_cannot_be_ordered(self):
+        product_id = self._product(10, name="Hidden by owner")
+        session = self.Session()
+        product = session.get(Product, product_id)
+        product.is_hidden = True
+        product.hidden_reason = "owner"
+        session.commit()
+        session.close()
+
+        response = self._reserve("order-1", [{"product_id": product_id, "quantity": 1}])
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("no longer available", response.json()["detail"])
+        self.assertEqual(self._stock(product_id), 10)
+
+    def test_cancelling_does_not_unhide_a_product_the_owner_hid(self):
+        product_id = self._product(3, name="Owner hid it")
+        self._reserve("order-1", [{"product_id": product_id, "quantity": 3}])
+        session = self.Session()
+        session.get(Product, product_id).hidden_reason = "owner"
+        session.commit()
+        session.close()
+
+        self._release("order-1")
+        self.assertTrue(self._hidden(product_id))
 
     # --- refusals ---
     def test_one_more_than_is_in_stock_is_refused_and_changes_nothing(self):
@@ -265,8 +353,8 @@ class StockReservationTests(unittest.TestCase):
 
     def test_a_release_can_bring_a_product_back_into_the_list(self):
         product_id = self._product(6, name="Comes back")
-        self._reserve("order-1", [{"product_id": product_id, "quantity": 2}])
-        # 4 left: below the listing threshold, so customers no longer see it.
+        self._reserve("order-1", [{"product_id": product_id, "quantity": 6}])
+        # The last item sold: the product is hidden from customers.
         names = [
             item["name"]
             for item in self.client.get(f"/shops/{SHOP_ID}/products").json()
@@ -280,6 +368,7 @@ class StockReservationTests(unittest.TestCase):
         ]
         self.assertIn("Comes back", names)
         self.assertEqual(self._stock(product_id), 6)
+        self.assertFalse(self._hidden(product_id))
 
     def test_a_release_restores_the_stock_status(self):
         product_id = self._product(5)

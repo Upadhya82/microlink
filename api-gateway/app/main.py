@@ -38,6 +38,9 @@ INTERNAL_PATH_PATTERNS = (
     # user-service's admin-id lookup, used by delivery-service when a shop's
     # cancellations cross the alert threshold (item 8).
     ("/users/internal/", "/users/internal/"),
+    # delivery-service's last-known locations, used by crowdsource-service to
+    # tell people near a new shop suggestion.
+    ("/delivery/internal/", "/delivery/internal/"),
 )
 
 

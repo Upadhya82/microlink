@@ -17,6 +17,8 @@ import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/list_filter_bar.dart';
+import '../../../core/widgets/order_filters.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../../core/widgets/branded_app_bar.dart';
@@ -35,6 +37,8 @@ class MyOrdersScreen extends StatefulWidget {
 
 class _MyOrdersScreenState extends State<MyOrdersScreen> {
   ViewState<List<DeliveryOrder>> _state = const ViewLoading();
+  String _group = 'all';
+  String _query = '';
 
   @override
   void initState() {
@@ -146,7 +150,24 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
           emptyMessage: tr('orders.none_body'),
           emptyIcon: Icons.receipt_long_outlined,
           loadingSkeleton: const SkeletonList(),
-          builder: (context, orders) => ListView.separated(
+          builder: (context, allOrders) {
+            final orders = filterOrders(allOrders, group: _group, query: _query);
+            return Column(
+              children: [
+                ListFilterBar<String>(
+                  searchHint: 'Search order number, item or address',
+                  onSearchChanged: (value) => setState(() => _query = value),
+                  options: orderFilterOptions(allOrders),
+                  selected: _group,
+                  onSelected: (value) => setState(() => _group = value),
+                ),
+                if (orders.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(AppSpacing.xl),
+                    child: Text('No orders match this filter.'),
+                  ),
+                Expanded(
+                  child: ListView.separated(
             padding: const EdgeInsets.all(AppSpacing.lg),
             // One extra row for the "saved information from ..." line, so
             // nobody mistakes a cached list for a live one (item 14).
@@ -234,7 +255,11 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
                 ),
               );
             },
-          ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );

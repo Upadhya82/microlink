@@ -13,14 +13,17 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/required_fields_note.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/list_filter_bar.dart';
 import '../../../core/widgets/role_nav_scaffold.dart';
 import '../../../core/widgets/status_badge.dart';
+import 'admin_product_categories_tab.dart';
+import 'admin_user_insights_tab.dart';
 import 'admin_users_tab.dart';
 
 /// The Admin Dashboard: independently-loading tabs backed by admin-service
 /// (`/admin/*` and `/ads/*` through the gateway) and crowdsource-service
 /// (`/crowdsource/*` through the gateway) -- platform analytics, a raw
-/// activity log, user complaints triage, crowdsourced shop and road report
+/// activity log, user complaints triage, crowdsourced road report
 /// moderation, ad approvals, and subscription plan management.
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -30,7 +33,7 @@ class AdminDashboardScreen extends StatefulWidget {
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
-  /// The four sections an admin works in daily sit in the bar; the four they
+  /// The four sections an admin works in daily sit in the bar; the five they
   /// consult occasionally live behind "More".
   ///
   /// All eight used to be a horizontally scrollable [TabBar], where anything
@@ -57,20 +60,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           builder: (_) => const AdminUsersTab(),
         ),
         RoleNavItem(
+          label: 'Insights',
+          icon: Icons.bar_chart_outlined,
+          selectedIcon: Icons.bar_chart,
+          headerTitle: 'User Insights',
+          headerSubtitle: 'Customers, shop owners and agents across Sri Lanka',
+          builder: (_) => const AdminUserInsightsTab(),
+        ),
+        RoleNavItem(
           label: 'Complaints',
           icon: Icons.report_problem_outlined,
           selectedIcon: Icons.report_problem,
           headerTitle: 'Complaints',
           headerSubtitle: 'What people have reported to you',
           builder: (_) => const _ComplaintsTab(),
-        ),
-        RoleNavItem(
-          label: 'Shops',
-          icon: Icons.storefront_outlined,
-          selectedIcon: Icons.storefront,
-          headerTitle: 'Shop Reports',
-          headerSubtitle: 'Shops the neighbourhood has suggested',
-          builder: (_) => const _ShopReportsTab(),
         ),
       ],
       overflowItems: [
@@ -97,6 +100,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           headerTitle: 'Activity Log',
           headerSubtitle: 'Everything that happened, newest first',
           builder: (_) => const _ActivityLogTab(),
+        ),
+        RoleNavItem(
+          label: 'Categories',
+          icon: Icons.category_outlined,
+          selectedIcon: Icons.category,
+          headerTitle: 'Product Categories',
+          headerSubtitle: 'Review categories shop owners added under "Others"',
+          builder: (_) => const AdminProductCategoriesTab(),
         ),
         RoleNavItem(
           label: 'Plans',
@@ -439,6 +450,8 @@ class _ActivityLogTab extends StatefulWidget {
 }
 
 class _ActivityLogTabState extends State<_ActivityLogTab> with AutomaticKeepAliveClientMixin {
+  String _filter = 'all';
+  String _query = '';
   ViewState<List<_ActivityItem>> _state = const ViewLoading();
 
   @override
@@ -482,8 +495,27 @@ class _ActivityLogTabState extends State<_ActivityLogTab> with AutomaticKeepAliv
         emptyTitle: 'No activity yet',
         emptyMessage: 'Platform events will show up here as they happen.',
         emptyIcon: Icons.history,
-        builder: (context, items) {
-          return ListView.separated(
+        builder: (context, allItems) {
+          final items = allItems.where((_ActivityItem item) {
+            if (_filter != 'all' && item.sourceService != _filter) return false;
+            return matchesQuery(_query, [item.eventType, item.sourceService, item.payload.toString()]);
+          }).toList();
+          return Column(
+            children: [
+              ListFilterBar<String>(
+                searchHint: 'Search events',
+                onSearchChanged: (value) => setState(() => _query = value),
+                options: valueFilterOptions(allItems.map((_ActivityItem item) => item.sourceService), label: (v) => v),
+                selected: _filter,
+                onSelected: (value) => setState(() => _filter = value),
+              ),
+              if (items.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(AppSpacing.xl),
+                  child: Text('No events match this filter.'),
+                ),
+              Expanded(
+                child: ListView.separated(
             padding: const EdgeInsets.all(AppSpacing.lg),
             itemCount: items.length,
             separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
@@ -542,6 +574,9 @@ class _ActivityLogTabState extends State<_ActivityLogTab> with AutomaticKeepAliv
                 ),
               );
             },
+          ),
+              ),
+            ],
           );
         },
       ),
@@ -621,6 +656,8 @@ class _ComplaintsTab extends StatefulWidget {
 }
 
 class _ComplaintsTabState extends State<_ComplaintsTab> with AutomaticKeepAliveClientMixin {
+  String _filter = 'all';
+  String _query = '';
   ViewState<List<_Complaint>> _state = const ViewLoading();
 
   @override
@@ -687,8 +724,27 @@ class _ComplaintsTabState extends State<_ComplaintsTab> with AutomaticKeepAliveC
         emptyTitle: 'No complaints',
         emptyMessage: 'Complaints submitted by users will appear here.',
         emptyIcon: Icons.forum_outlined,
-        builder: (context, items) {
-          return ListView.separated(
+        builder: (context, allItems) {
+          final items = allItems.where((_Complaint item) {
+            if (_filter != 'all' && item.status != _filter) return false;
+            return matchesQuery(_query, [item.subject, item.description, item.category, item.adminResponse]);
+          }).toList();
+          return Column(
+            children: [
+              ListFilterBar<String>(
+                searchHint: 'Search complaints',
+                onSearchChanged: (value) => setState(() => _query = value),
+                options: valueFilterOptions(allItems.map((_Complaint item) => item.status), label: _formatStatusLabel),
+                selected: _filter,
+                onSelected: (value) => setState(() => _filter = value),
+              ),
+              if (items.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(AppSpacing.xl),
+                  child: Text('No complaints match this filter.'),
+                ),
+              Expanded(
+                child: ListView.separated(
             padding: const EdgeInsets.all(AppSpacing.lg),
             itemCount: items.length,
             separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
@@ -750,6 +806,9 @@ class _ComplaintsTabState extends State<_ComplaintsTab> with AutomaticKeepAliveC
                 ),
               );
             },
+          ),
+              ),
+            ],
           );
         },
       ),
@@ -785,6 +844,12 @@ class _ComplaintEditSheetState extends State<_ComplaintEditSheet> {
   }
 
   Future<void> _submit() async {
+    if (_status == 'dismissed' && _responseController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please provide an admin response explaining why this complaint is dismissed.')),
+      );
+      return;
+    }
     setState(() => _isSubmitting = true);
     try {
       await ApiClient.instance.patch(
@@ -867,208 +932,6 @@ class _ComplaintEditSheetState extends State<_ComplaintEditSheet> {
 }
 
 // ---------------------------------------------------------------------------
-// Tab: Shop Reports (crowdsourced new-shop submissions -- admin approve/reject)
-// ---------------------------------------------------------------------------
-
-class _ShopReport {
-  final String id;
-  final String reporterId;
-  final String shopName;
-  final String category;
-  final String address;
-  final String description;
-  final String status;
-  final DateTime? createdAt;
-
-  const _ShopReport({
-    required this.id,
-    required this.reporterId,
-    required this.shopName,
-    required this.category,
-    required this.address,
-    required this.description,
-    required this.status,
-    required this.createdAt,
-  });
-
-  factory _ShopReport.fromJson(Map<String, dynamic> json) {
-    return _ShopReport(
-      id: json['id'].toString(),
-      reporterId: json['reporter_id']?.toString() ?? '',
-      shopName: json['shop_name']?.toString() ?? '',
-      category: json['category']?.toString() ?? '',
-      address: json['address']?.toString() ?? '',
-      description: json['description']?.toString() ?? '',
-      status: json['status']?.toString() ?? 'pending',
-      createdAt: _tryParseDate(json['created_at']?.toString()),
-    );
-  }
-}
-
-class _ShopReportsTab extends StatefulWidget {
-  const _ShopReportsTab();
-
-  @override
-  State<_ShopReportsTab> createState() => _ShopReportsTabState();
-}
-
-class _ShopReportsTabState extends State<_ShopReportsTab> with AutomaticKeepAliveClientMixin {
-  ViewState<List<_ShopReport>> _state = const ViewLoading();
-
-  @override
-  bool get wantKeepAlive => true;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    setState(() => _state = const ViewLoading());
-    try {
-      final response = await ApiClient.instance.get('/crowdsource/shop-reports');
-      final items = (response as List<dynamic>)
-          .map((e) => _ShopReport.fromJson(e as Map<String, dynamic>))
-          .toList();
-      if (!mounted) return;
-      setState(() => _state = ViewData(items));
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(() => _state = ViewError(e.message));
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _state = const ViewError('Could not load shop reports.'));
-    }
-  }
-
-  Future<void> _setStatus(_ShopReport report, String status) async {
-    try {
-      await ApiClient.instance.patch('/crowdsource/shop-reports/${report.id}/status', body: {'status': status});
-      await _load();
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Could not update the shop report.')));
-    }
-  }
-
-  (Color, Color) _statusColors(BuildContext context, String status) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final appColors = context.appColors;
-    return switch (status) {
-      'pending' => (colorScheme.secondaryContainer, colorScheme.onSecondaryContainer),
-      'approved' => (appColors.success.withValues(alpha: 0.18), appColors.success),
-      'rejected' => (colorScheme.errorContainer, colorScheme.onErrorContainer),
-      _ => (colorScheme.surfaceContainerHighest, appColors.textSecondary),
-    };
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    final textTheme = Theme.of(context).textTheme;
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: AsyncStateView<List<_ShopReport>>(
-        state: _state,
-        onRetry: _load,
-        isEmpty: (data) => data.isEmpty,
-        emptyTitle: 'No shop reports',
-        emptyMessage: 'New shops reported by users will appear here for review.',
-        emptyIcon: Icons.storefront_outlined,
-        builder: (context, items) {
-          return ListView.separated(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
-            itemBuilder: (context, index) {
-              final report = items[index];
-              final (bg, fg) = _statusColors(context, report.status);
-              return AppCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                report.shopName,
-                                style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-                              ),
-                              Text(
-                                report.category,
-                                style: textTheme.bodySmall
-                                    ?.copyWith(color: context.appColors.textSecondary, fontWeight: FontWeight.w600),
-                              ),
-                            ],
-                          ),
-                        ),
-                        StatusBadge(
-                          label: report.status[0].toUpperCase() + report.status.substring(1),
-                          background: bg,
-                          foreground: fg,
-                        ),
-                      ],
-                    ),
-                    if (report.address.isNotEmpty) ...[
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(report.address, style: textTheme.bodyMedium),
-                    ],
-                    if (report.description.isNotEmpty) ...[
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(report.description, style: textTheme.bodySmall),
-                    ],
-                    if (report.createdAt != null) ...[
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        _timeAgo(report.createdAt!),
-                        style: textTheme.bodySmall?.copyWith(color: context.appColors.textSecondary),
-                      ),
-                    ],
-                    if (report.status == 'pending') ...[
-                      const SizedBox(height: AppSpacing.md),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => _setStatus(report, 'rejected'),
-                              icon: Icon(Icons.close, color: colorScheme.error, size: 18),
-                              label: Text('Reject', style: TextStyle(color: colorScheme.error)),
-                            ),
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: FilledButton.icon(
-                              onPressed: () => _setStatus(report, 'approved'),
-                              icon: const Icon(Icons.check, size: 18),
-                              label: const Text('Approve'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Tab: Road Reports (crowdsourced road-condition reports -- admin verify/reject)
 // ---------------------------------------------------------------------------
 
@@ -1112,6 +975,8 @@ class _RoadReportsTab extends StatefulWidget {
 }
 
 class _RoadReportsTabState extends State<_RoadReportsTab> with AutomaticKeepAliveClientMixin {
+  String _filter = 'all';
+  String _query = '';
   ViewState<List<_RoadReport>> _state = const ViewLoading();
 
   @override
@@ -1145,8 +1010,19 @@ class _RoadReportsTabState extends State<_RoadReportsTab> with AutomaticKeepAliv
   // "rejected" (never "approved") -- "verified" is what bumps the
   // reporter's trust score, so that is what the Approve button sends.
   Future<void> _setStatus(_RoadReport report, String status) async {
+    String? reason;
+    if (status == 'rejected') {
+      reason = await _askReason('Road Report: ${report.conditionType}');
+      if (reason == null) return;
+    }
     try {
-      await ApiClient.instance.patch('/crowdsource/road-reports/${report.id}/status', body: {'status': status});
+      await ApiClient.instance.patch(
+        '/crowdsource/road-reports/${report.id}/status',
+        body: {
+          'status': status,
+          if (reason != null && reason.isNotEmpty) 'reason': reason,
+        },
+      );
       await _load();
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -1156,6 +1032,52 @@ class _RoadReportsTabState extends State<_RoadReportsTab> with AutomaticKeepAliv
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Could not update the road report.')));
     }
+  }
+
+  Future<String?> _askReason(String target) async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Reason for Rejection'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Specify why "$target" is being rejected. The user who reported it will be notified.',
+              style: Theme.of(dialogContext).textTheme.bodySmall,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              maxLines: 2,
+              maxLength: 200,
+              decoration: const InputDecoration(
+                hintText: 'e.g. Issue not found, duplicate report',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isEmpty) return;
+              Navigator.pop(dialogContext, text);
+            },
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
   }
 
   (Color, Color) _statusColors(BuildContext context, String status) {
@@ -1194,8 +1116,27 @@ class _RoadReportsTabState extends State<_RoadReportsTab> with AutomaticKeepAliv
         emptyTitle: 'No road reports',
         emptyMessage: 'Road issues reported by users will appear here for review.',
         emptyIcon: Icons.warning_amber_outlined,
-        builder: (context, items) {
-          return ListView.separated(
+        builder: (context, allItems) {
+          final items = allItems.where((_RoadReport item) {
+            if (_filter != 'all' && item.status != _filter) return false;
+            return matchesQuery(_query, [item.conditionType, item.severity, item.description]);
+          }).toList();
+          return Column(
+            children: [
+              ListFilterBar<String>(
+                searchHint: 'Search road reports',
+                onSearchChanged: (value) => setState(() => _query = value),
+                options: valueFilterOptions(allItems.map((_RoadReport item) => item.status), label: _formatStatusLabel),
+                selected: _filter,
+                onSelected: (value) => setState(() => _filter = value),
+              ),
+              if (items.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(AppSpacing.xl),
+                  child: Text('No road reports match this filter.'),
+                ),
+              Expanded(
+                child: ListView.separated(
             padding: const EdgeInsets.all(AppSpacing.lg),
             itemCount: items.length,
             separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
@@ -1266,6 +1207,9 @@ class _RoadReportsTabState extends State<_RoadReportsTab> with AutomaticKeepAliv
                 ),
               );
             },
+          ),
+              ),
+            ],
           );
         },
       ),
@@ -1323,6 +1267,8 @@ class _AdsTab extends StatefulWidget {
 }
 
 class _AdsTabState extends State<_AdsTab> with AutomaticKeepAliveClientMixin {
+  String _filter = 'all';
+  String _query = '';
   ViewState<List<_Ad>> _state = const ViewLoading();
 
   @override
@@ -1351,8 +1297,19 @@ class _AdsTabState extends State<_AdsTab> with AutomaticKeepAliveClientMixin {
   }
 
   Future<void> _setStatus(_Ad ad, String status) async {
+    String? reason;
+    if (status == 'rejected') {
+      reason = await _askReason('Ad: ${ad.title}');
+      if (reason == null) return;
+    }
     try {
-      await ApiClient.instance.patch('/ads/${ad.id}/status', body: {'status': status});
+      await ApiClient.instance.patch(
+        '/ads/${ad.id}/status',
+        body: {
+          'status': status,
+          if (reason != null && reason.isNotEmpty) 'reason': reason,
+        },
+      );
       await _load();
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -1362,6 +1319,52 @@ class _AdsTabState extends State<_AdsTab> with AutomaticKeepAliveClientMixin {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Could not update the ad.')));
     }
+  }
+
+  Future<String?> _askReason(String target) async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Reason for Rejection'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Specify why "$target" is being rejected. The submitting advertiser will be notified.',
+              style: Theme.of(dialogContext).textTheme.bodySmall,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              maxLines: 2,
+              maxLength: 200,
+              decoration: const InputDecoration(
+                hintText: 'e.g. Inappropriate content, policy violation',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isEmpty) return;
+              Navigator.pop(dialogContext, text);
+            },
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _openEditSheet(_Ad ad) async {
@@ -1400,8 +1403,27 @@ class _AdsTabState extends State<_AdsTab> with AutomaticKeepAliveClientMixin {
         emptyTitle: 'No ad submissions',
         emptyMessage: 'Ads submitted by shop owners or companies will appear here for review.',
         emptyIcon: Icons.campaign_outlined,
-        builder: (context, items) {
-          return ListView.separated(
+        builder: (context, allItems) {
+          final items = allItems.where((_Ad item) {
+            if (_filter != 'all' && item.status != _filter) return false;
+            return matchesQuery(_query, [item.title, item.subtitle, item.advertiserName]);
+          }).toList();
+          return Column(
+            children: [
+              ListFilterBar<String>(
+                searchHint: 'Search ads',
+                onSearchChanged: (value) => setState(() => _query = value),
+                options: valueFilterOptions(allItems.map((_Ad item) => item.status), label: _formatStatusLabel),
+                selected: _filter,
+                onSelected: (value) => setState(() => _filter = value),
+              ),
+              if (items.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(AppSpacing.xl),
+                  child: Text('No ads match this filter.'),
+                ),
+              Expanded(
+                child: ListView.separated(
             padding: const EdgeInsets.all(AppSpacing.lg),
             itemCount: items.length,
             separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
@@ -1491,6 +1513,9 @@ class _AdsTabState extends State<_AdsTab> with AutomaticKeepAliveClientMixin {
                 ),
               );
             },
+          ),
+              ),
+            ],
           );
         },
       ),

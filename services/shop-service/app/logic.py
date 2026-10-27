@@ -23,7 +23,7 @@ STOCK_STATUSES = ("in_stock", "low_stock", "out_of_stock")
 ALERT_TYPES = ("general", "closure", "relocation", "special_offer")
 
 DEFAULT_LOW_STOCK_THRESHOLD = 5
-DEFAULT_MIN_LISTABLE_STOCK = 5
+DEFAULT_MIN_LISTABLE_STOCK = 1
 
 
 # --------------------------------------------------------------------------
@@ -58,15 +58,33 @@ def derive_stock_status(quantity: int | None, threshold: int = DEFAULT_LOW_STOCK
 
 
 def is_listable(quantity: int | None, minimum: int = DEFAULT_MIN_LISTABLE_STOCK) -> bool:
-    """Whether customers may see a product at all.
+    """Whether a product has enough stock to be listed at all.
 
-    A shelf with one or two items left is not worth an order, so a product
-    needs `minimum` units before it is listed. A missing quantity means the
-    owner never said, which is not enough to list it.
+    With the default minimum of 1, customers can order right down to the
+    last item. A missing quantity means the owner never said, which is not
+    enough to list it.
     """
     if quantity is None:
         return False
     return quantity >= minimum
+
+
+def stock_alert_after_sale(before: int, after: int, threshold: int = DEFAULT_LOW_STOCK_THRESHOLD) -> str | None:
+    """What to tell a shop owner after a sale took a product from `before` to `after` units.
+
+    sold_out .. the last item was sold: the product is hidden and the owner told.
+    low_stock . the sale took it down to `threshold` or fewer (from above it),
+                so the owner is told once per drop -- not again on every sale
+                while it stays low.
+    None ...... nothing worth a notification.
+    """
+    if after >= before:
+        return None
+    if after <= 0:
+        return "sold_out"
+    if before > threshold >= after:
+        return "low_stock"
+    return None
 
 
 def resolve_stock_status(
@@ -192,6 +210,79 @@ def fill_last_days(
         day = today - timedelta(days=back)
         result.append({"date": day.isoformat(), "views": counts.get(day, 0)})
     return result
+
+
+# --------------------------------------------------------------------------
+# Analytics over a chosen period (owner "Performance over time")
+# --------------------------------------------------------------------------
+GRANULARITIES = ("day", "month", "year")
+# A daily chart over more than a year is unreadable on a phone and a lot of
+# bars to send; the app switches to months well before this.
+MAX_DAILY_SPAN_DAYS = 366
+
+
+def period_key(day: date, granularity: str) -> str:
+    """The bucket a local date falls in: 2026-10-25, 2026-10 or 2026."""
+    if granularity == "day":
+        return day.isoformat()
+    if granularity == "month":
+        return f"{day.year:04d}-{day.month:02d}"
+    if granularity == "year":
+        return f"{day.year:04d}"
+    raise ValueError(f"Unknown granularity: {granularity}")
+
+
+def period_keys(start: date, end: date, granularity: str) -> list[str]:
+    """Every bucket from `start` to `end` inclusive, oldest first, none skipped.
+
+    Empty periods are kept so a chart shows a gap as a zero bar rather than
+    silently closing it up.
+    """
+    if end < start:
+        return []
+    keys: list[str] = []
+    if granularity == "day":
+        day = start
+        while day <= end:
+            keys.append(day.isoformat())
+            day += timedelta(days=1)
+    elif granularity == "month":
+        year, month = start.year, start.month
+        while (year, month) <= (end.year, end.month):
+            keys.append(f"{year:04d}-{month:02d}")
+            month += 1
+            if month == 13:
+                year, month = year + 1, 1
+    elif granularity == "year":
+        keys = [f"{year:04d}" for year in range(start.year, end.year + 1)]
+    else:
+        raise ValueError(f"Unknown granularity: {granularity}")
+    return keys
+
+
+def local_window_utc(start: date, end: date, offset_minutes: int) -> tuple[datetime, datetime]:
+    """[start of `start`, start of the day after `end`) in local time, as UTC."""
+    tz = timezone(timedelta(minutes=offset_minutes))
+    begin = datetime(start.year, start.month, start.day, tzinfo=tz)
+    after = datetime(end.year, end.month, end.day, tzinfo=tz) + timedelta(days=1)
+    return begin.astimezone(timezone.utc), after.astimezone(timezone.utc)
+
+
+def count_by_period(
+    timestamps: Iterable[datetime],
+    start: date,
+    end: date,
+    granularity: str,
+    offset_minutes: int = 0,
+) -> dict[str, int]:
+    """How many timestamps fall in each period between `start` and `end` (local dates)."""
+    counts = {key: 0 for key in period_keys(start, end, granularity)}
+    for moment in timestamps:
+        day = to_local(moment, offset_minutes).date()
+        if start <= day <= end:
+            key = period_key(day, granularity)
+            counts[key] = counts.get(key, 0) + 1
+    return counts
 
 
 def peak_hours(

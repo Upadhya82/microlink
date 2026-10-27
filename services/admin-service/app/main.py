@@ -16,6 +16,7 @@ from app.routers import (
     monitor_router,
     notifications_router,
     subscriptions_router,
+    user_insights_router,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -76,6 +77,7 @@ app.include_router(analytics_router.router)
 app.include_router(ads_router.router)
 app.include_router(notifications_router.router)
 app.include_router(monitor_router.router)
+app.include_router(user_insights_router.router)
 
 
 @app.get("/health")

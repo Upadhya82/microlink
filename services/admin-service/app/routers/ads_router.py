@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, get_current_user, require_admin
 from app.database import get_db
-from app.event_bus import publish_event
+from app.event_bus import notify_users, publish_event
 from app.images import ImageRejected, process_image
 from app.models import AdStatus, Advertisement
 from app.schemas import AdCreateRequest, AdResponse, AdReviewUpdateRequest, AdStatusUpdateRequest
@@ -108,6 +108,16 @@ async def update_ad_status(
     db.refresh(ad)
 
     await publish_event("ad.status_changed", {"ad_id": ad.id, "status": ad.status.value})
+    if ad.submitted_by_user_id:
+        approved = ad.status == AdStatus.approved
+        title = f"Advertisement '{ad.title}' Approved" if approved else f"Advertisement '{ad.title}' Rejected"
+        reason_text = f" Reason: {payload.reason}" if payload.reason else ""
+        body = (
+            f"Your advertisement banner '{ad.title}' has been approved and is now live."
+            if approved
+            else f"Your advertisement banner '{ad.title}' was rejected by administrator.{reason_text}"
+        )
+        await notify_users([ad.submitted_by_user_id], title, body, kind="ad")
     return ad
 
 

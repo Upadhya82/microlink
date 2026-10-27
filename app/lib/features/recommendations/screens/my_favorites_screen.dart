@@ -7,6 +7,8 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/category_style.dart';
 import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/list_filter_bar.dart';
+import '../../../core/widgets/shop_filters.dart';
 import '../../../core/widgets/shop_preview_card.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/branded_app_bar.dart';
@@ -26,6 +28,8 @@ class MyFavoritesScreen extends StatefulWidget {
 
 class _MyFavoritesScreenState extends State<MyFavoritesScreen> {
   ViewState<List<Shop>> _state = const ViewLoading();
+  String _filter = 'all';
+  String _query = '';
 
   @override
   void initState() {
@@ -77,7 +81,24 @@ class _MyFavoritesScreenState extends State<MyFavoritesScreen> {
           emptyMessage: 'Tap the heart on any shop\'s page to save it here.',
           emptyIcon: Icons.favorite_border,
           loadingSkeleton: const SkeletonList(),
-          builder: (context, shops) => GridView.builder(
+          builder: (context, allShops) {
+            final shops = filterShops(allShops, filter: _filter, query: _query);
+            return Column(
+              children: [
+                ListFilterBar<String>(
+                  searchHint: 'Search your favorites',
+                  onSearchChanged: (value) => setState(() => _query = value),
+                  options: shopFilterOptions(allShops),
+                  selected: _filter,
+                  onSelected: (value) => setState(() => _filter = value),
+                ),
+                if (shops.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(AppSpacing.xl),
+                    child: Text('No favorites match this filter.'),
+                  ),
+                Expanded(
+                  child: GridView.builder(
             padding: const EdgeInsets.all(AppSpacing.lg),
             gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
               maxCrossAxisExtent: 200,
@@ -94,7 +115,11 @@ class _MyFavoritesScreenState extends State<MyFavoritesScreen> {
                 categoryTint: categoryColors(context, shop.category),
               );
             },
-          ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );

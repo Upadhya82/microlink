@@ -13,6 +13,7 @@ import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/stagger_in.dart';
 import '../../../core/widgets/branded_app_bar.dart';
+import '../../crowdsourcing/widgets/suggestion_comments.dart';
 import '../widgets/admin_document_row.dart';
 
 /// The admin's moderation desk: everything waiting on a decision, plus the
@@ -24,28 +25,140 @@ import '../widgets/admin_document_row.dart';
 class AdminReviewScreen extends StatelessWidget {
   const AdminReviewScreen({super.key});
 
+  /// Height of one tab (icon + label). Flutter's default for a tab with both
+  /// an icon and text is 72, which is taller than the space the header gave
+  /// it, so the tab strip spilled upward over the title. Setting it here and
+  /// sizing the header from it keeps the two in step.
+  static const double _tabHeight = 50;
+
+  /// Everything the tab strip takes up: the tab, the strip's 4px padding
+  /// top and bottom, its 1px border top and bottom, and the 8px gap below.
+  static const double _tabStripHeight =
+      _tabHeight + (4 * 2) + (1 * 2) + AppSpacing.sm;
+
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: BrandedAppBar(
-          title: const Text('Review & monitor'),
-          // Not isScrollable: with four short labels a scrollable TabBar
-          // lays its hit areas out narrower than the painted labels, which
-          // left the last tab visually present but untappable.
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Shops'),
-              Tab(text: 'Applicants'),
-              Tab(text: 'Corrections'),
-              Tab(text: 'Monitor'),
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                ),
+                child: const Icon(
+                  Icons.fact_check_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Review & Monitor',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 17,
+                      letterSpacing: 0.2,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    'Admin Moderation Desk',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
             ],
+          ),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(_tabStripHeight),
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(AppSpacing.md, 0, AppSpacing.md, AppSpacing.sm),
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.85),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.7),
+                ),
+              ),
+              child: TabBar(
+                isScrollable: false,
+                indicatorSize: TabBarIndicatorSize.tab,
+                indicator: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                labelColor: Colors.white,
+                unselectedLabelColor: Theme.of(context).colorScheme.onSurface,
+                labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                dividerColor: Colors.transparent,
+                // The default 16px side padding leaves too little room for
+                // "Corrections" and "Applicants" when five tabs share a phone
+                // screen, so their labels got cut off.
+                labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+                tabs: const [
+                  Tab(
+                    icon: Icon(Icons.storefront_outlined, size: 18),
+                    text: 'Shops',
+                    iconMargin: EdgeInsets.only(bottom: 2),
+                    height: _tabHeight,
+                  ),
+                  Tab(
+                    icon: Icon(Icons.add_location_alt_outlined, size: 18),
+                    text: 'Suggestions',
+                    iconMargin: EdgeInsets.only(bottom: 2),
+                    height: _tabHeight,
+                  ),
+                  Tab(
+                    icon: Icon(Icons.people_outline, size: 18),
+                    text: 'Applicants',
+                    iconMargin: EdgeInsets.only(bottom: 2),
+                    height: _tabHeight,
+                  ),
+                  Tab(
+                    icon: Icon(Icons.edit_note_outlined, size: 18),
+                    text: 'Corrections',
+                    iconMargin: EdgeInsets.only(bottom: 2),
+                    height: _tabHeight,
+                  ),
+                  Tab(
+                    icon: Icon(Icons.speed_outlined, size: 18),
+                    text: 'Monitor',
+                    iconMargin: EdgeInsets.only(bottom: 2),
+                    height: _tabHeight,
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
         body: const TabBarView(
           children: [
             _ShopQueueTab(),
+            _SuggestionQueueTab(),
             _ApplicantQueueTab(),
             _CorrectionQueueTab(),
             _MonitorTab(),
@@ -189,13 +302,115 @@ class _ShopQueueTabState extends _QueueTabState<_ShopQueueTab> {
   @override
   String get emptyMessage => 'Every registered shop has been reviewed.';
 
-  Future<void> _verify(Map<String, dynamic> shop, bool approve) async {
+  Future<void> _verify(Map<String, dynamic> shop, bool approve, {String? reason}) async {
     try {
       await ApiClient.instance.patch(
         '/shops/${shop['id']}/verify',
-        body: {'is_verified': approve},
+        body: {'is_verified': approve, if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim()},
       );
-      toast(approve ? '${shop['name']} verified' : '${shop['name']} left unverified');
+      toast(approve ? '${shop['name']} verified successfully' : '${shop['name']} marked as Pending (Under Review)');
+      await load();
+    } on ApiException catch (e) {
+      toast(e.message);
+    }
+  }
+
+  Future<void> _promptLeavePending(Map<String, dynamic> shop) async {
+    final listed = (shop['listable_product_count'] as num?)?.toInt() ?? 0;
+    final defaultReason = listed < AppConstants.minProductsToVerify
+        ? 'Awaiting owner to list at least 5 products (currently has $listed)'
+        : 'Pending administrator review and verification';
+    final controller = TextEditingController(text: defaultReason);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Leave Shop Pending'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Set the pending status note for "${shop['name']}":',
+              style: Theme.of(ctx).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              controller: controller,
+              maxLines: 2,
+              maxLength: 150,
+              decoration: const InputDecoration(
+                labelText: 'Status Reason',
+                hintText: 'e.g. Waiting for products, awaiting call...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Save Pending Status'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _verify(shop, false, reason: controller.text.trim());
+    }
+  }
+
+  Future<void> _rejectShop(Map<String, dynamic> shop) async {
+    final controller = TextEditingController(text: 'Registration rejected by administrator');
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reject Shop Registration'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Confirm rejection of "${shop['name']}". It will be removed from the pending review queue.',
+              style: Theme.of(ctx).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              controller: controller,
+              maxLines: 2,
+              maxLength: 200,
+              decoration: const InputDecoration(
+                labelText: 'Rejection Reason',
+                hintText: 'e.g. Invalid documents, duplicate',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Reject Shop'),
+          ),
+        ],
+      ),
+    );
+    if (reason == null) return;
+    try {
+      await ApiClient.instance.patch(
+        '/shops/${shop['id']}/status',
+        body: {'status': 'closed', 'reason': reason},
+      );
+      toast('Rejected ${shop['name']}');
       await load();
     } on ApiException catch (e) {
       toast(e.message);
@@ -208,6 +423,49 @@ class _ShopQueueTabState extends _QueueTabState<_ShopQueueTab> {
       final colors = context.appColors;
       final listed = (shop['listable_product_count'] as num?)?.toInt() ?? 0;
       final canVerify = listed >= AppConstants.minProductsToVerify;
+      final statusReason = shop['status_reason'] as String?;
+      final hasLeftPending = statusReason != null && statusReason.trim().isNotEmpty;
+      final statusBadge = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: hasLeftPending
+              ? Colors.amber.shade50
+              : (canVerify ? Colors.blue.shade50 : Colors.orange.shade50),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: hasLeftPending
+                ? Colors.amber.shade400
+                : (canVerify ? Colors.blue.shade300 : Colors.orange.shade300),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              hasLeftPending
+                  ? Icons.schedule_outlined
+                  : (canVerify ? Icons.check_circle_outline : Icons.pending_outlined),
+              size: 13,
+              color: hasLeftPending
+                  ? Colors.amber.shade900
+                  : (canVerify ? Colors.blue.shade800 : Colors.orange.shade900),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              hasLeftPending
+                  ? 'Status: Left Pending'
+                  : (canVerify ? 'Ready to Verify' : 'Status: Needs Products'),
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: hasLeftPending
+                  ? Colors.amber.shade900
+                  : (canVerify ? Colors.blue.shade900 : Colors.orange.shade900),
+              ),
+            ),
+          ],
+        ),
+      );
       return AppCard(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -236,9 +494,39 @@ class _ShopQueueTabState extends _QueueTabState<_ShopQueueTab> {
                     ?.copyWith(color: colors.textSecondary),
               ),
             const SizedBox(height: AppSpacing.sm),
-            // Item 10: a shop cannot be verified until customers would
-            // actually find something to buy, so say where it stands rather
-            // than letting the admin tap Verify into a 409.
+            Row(
+              children: [
+                statusBadge,
+              ],
+            ),
+            if (hasLeftPending) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50.withValues(alpha: 0.8),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.amber.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 14, color: Colors.amber.shade800),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        'Note: $statusReason',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.amber.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.sm),
             Row(
               children: [
                 Icon(
@@ -263,8 +551,20 @@ class _ShopQueueTabState extends _QueueTabState<_ShopQueueTab> {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () => _verify(shop, false),
-                    child: const Text('Leave pending'),
+                    child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.schedule, size: 16), SizedBox(width: 4), Text('Leave pending')]),
+                    onPressed: () => _promptLeavePending(shop),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Expanded(
+                  flex: 0,
+                  child: IconButton.outlined(
+                    tooltip: 'Reject shop registration',
+                    onPressed: () => _rejectShop(shop),
+                    icon: Icon(Icons.close_rounded, size: 18, color: Colors.red.shade700),
+                    style: IconButton.styleFrom(
+                      side: BorderSide(color: Colors.red.shade300),
+                    ),
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
@@ -284,6 +584,301 @@ class _ShopQueueTabState extends _QueueTabState<_ShopQueueTab> {
                 ),
               ],
             ),
+          ],
+        ),
+      );
+    });
+  }
+}
+
+// --------------------------------------------------------- suggestions
+
+class _SuggestionQueueTab extends StatefulWidget {
+  const _SuggestionQueueTab();
+
+  @override
+  State<_SuggestionQueueTab> createState() => _SuggestionQueueTabState();
+}
+
+class _SuggestionQueueTabState extends _QueueTabState<_SuggestionQueueTab> {
+  @override
+  String get endpoint => '/crowdsource/shop-reports';
+  @override
+  String get emptyTitle => 'No shop suggestions waiting';
+  @override
+  String get emptyMessage => 'New shops suggested by community users appear here for review.';
+
+  Future<void> _setStatusSuggestion(Map<String, dynamic> item, String status) async {
+    String? reason;
+    if (status == 'rejected') {
+      final controller = TextEditingController();
+      reason = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Reason for Rejection'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Specify why suggestion for "${item['shop_name']}" is being rejected. The submitting user will be notified.',
+                style: Theme.of(ctx).textTheme.bodySmall,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                maxLines: 2,
+                maxLength: 200,
+                decoration: const InputDecoration(
+                  hintText: 'e.g. Inaccurate location, duplicate',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+              onPressed: () {
+                final text = controller.text.trim();
+                if (text.isEmpty) return;
+                Navigator.pop(ctx, text);
+              },
+              child: const Text('Reject'),
+            ),
+          ],
+        ),
+      );
+      if (reason == null) return;
+    }
+    try {
+      await ApiClient.instance.patch(
+        '/crowdsource/shop-reports/${item['id']}/status',
+        body: {'status': status, if (reason != null && reason.isNotEmpty) 'reason': reason},
+      );
+      toast(status == 'approved' ? 'Shop suggestion approved' : 'Shop suggestion rejected');
+      await load();
+    } on ApiException catch (e) {
+      toast(e.message);
+    }
+  }
+
+  Future<void> _requestSuggestionPhone(Map<String, dynamic> item) async {
+    try {
+      final res = await ApiClient.instance.post(
+        '/crowdsource/shop-reports/${item['id']}/request-phone',
+      ) as Map<String, dynamic>;
+      toast(res['message']?.toString() ?? 'Broadcast sent to nearby users');
+    } catch (_) {
+      toast('Could not send request');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return buildList((context, report, _) {
+      final colors = context.appColors;
+      final status = (report['status'] as String? ?? 'pending').toLowerCase();
+      final ratio = (report['confirmed_ratio'] as num?)?.toDouble() ?? 0.0;
+      final responses = (report['responses'] as num?)?.toInt() ?? 0;
+      final confirmations = (report['confirmations'] as num?)?.toInt() ?? 0;
+      final isHighVerification = ratio >= 0.75 && responses > 0;
+      final comments = (report['comments'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
+      // Who said each comment, when the server sends names.
+      final commentDetail = (report['comments_detail'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .toList();
+
+      return AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        report['shop_name'] as String? ?? 'Unnamed shop',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        '${report['category'] ?? ''} · ${report['address'] ?? ''}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
+                      ),
+                      // The phone number belongs to a MicroLink account, so
+                      // this skipped the neighbour check and can be decided now.
+                      if (report['fast_track'] == true) ...[
+                        const SizedBox(height: AppSpacing.xs),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '📞 Phone belongs to MicroLink user '
+                            '${report['phone_user_name'] ?? ''} · ready to review',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: status == 'approved'
+                        ? Colors.green.shade50
+                        : (status == 'rejected' ? Colors.red.shade50 : Colors.amber.shade50),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: status == 'approved'
+                          ? Colors.green.shade300
+                          : (status == 'rejected' ? Colors.red.shade300 : Colors.amber.shade400),
+                    ),
+                  ),
+                  child: Text(
+                    status[0].toUpperCase() + status.substring(1),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: status == 'approved'
+                          ? Colors.green.shade900
+                          : (status == 'rejected' ? Colors.red.shade900 : Colors.amber.shade900),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: isHighVerification
+                    ? Colors.green.shade50
+                    : (responses > 0 ? Colors.red.shade50 : Colors.grey.shade100),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isHighVerification
+                      ? Colors.green.shade300
+                      : (responses > 0 ? Colors.red.shade300 : Colors.grey.shade300),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    isHighVerification ? Icons.verified : (responses > 0 ? Icons.error_outline : Icons.info_outline),
+                    size: 16,
+                    color: isHighVerification ? Colors.green.shade800 : (responses > 0 ? Colors.red.shade800 : Colors.grey.shade700),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      responses > 0
+                          ? '${(ratio * 100).toInt()}% Confirmed by neighbours ($confirmations of $responses votes)'
+                          : 'Awaiting neighbour confirmations (0 votes yet)',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: isHighVerification ? Colors.green.shade900 : (responses > 0 ? Colors.red.shade900 : Colors.grey.shade800),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (comments.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text('Neighbour Comments:', style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 3),
+              for (var i = 0; i < comments.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.chat_bubble_outline, size: 12, color: Colors.grey),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text.rich(
+                          TextSpan(
+                            children: [
+                              if (i < commentDetail.length &&
+                                  commentDetail[i]['author_name'] != null)
+                                TextSpan(
+                                  text: '${commentDetail[i]['author_name']}: ',
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                              TextSpan(
+                                text: '"${comments[i]}"',
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
+                              ),
+                              if (i < commentDetail.length &&
+                                  ((commentDetail[i]['reply_count'] as num?) ?? 0) > 0)
+                                TextSpan(
+                                  text: '  · ${commentDetail[i]['reply_count']} repl'
+                                      '${commentDetail[i]['reply_count'] == 1 ? 'y' : 'ies'}',
+                                  style: Theme.of(context).textTheme.labelSmall,
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: () => showSuggestionComments(
+                  context,
+                  reportId: report['id'].toString(),
+                  shopName: report['shop_name']?.toString() ?? 'Suggested shop',
+                ),
+                icon: const Icon(Icons.forum_outlined, size: 16),
+                label: const Text('View conversation'),
+              ),
+            ],
+            if (status == 'pending') ...[
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _setStatusSuggestion(report, 'rejected'),
+                      icon: Icon(Icons.close, size: 16, color: Colors.red.shade700),
+                      label: Text('Reject', style: TextStyle(color: Colors.red.shade700)),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  IconButton.outlined(
+                    tooltip: 'Request phone number from nearby users',
+                    onPressed: () => _requestSuggestionPhone(report),
+                    icon: const Icon(Icons.phone_forwarded, size: 18),
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => _setStatusSuggestion(report, 'approved'),
+                      icon: const Icon(Icons.check, size: 16),
+                      label: const Text('Approve'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       );
@@ -384,11 +979,75 @@ class _ApplicantQueueTabState extends _QueueTabState<_ApplicantQueueTab> {
   }
 
   @override
+  Future<void> load() async {
+    setState(() => state = const ViewLoading());
+    try {
+      final response = await ApiClient.instance.get(endpoint);
+      final rows = (response as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      // FIFO: prioritize oldest / delayed applications first
+      rows.sort((a, b) {
+        final da = DateTime.tryParse(a['created_at']?.toString() ?? '') ?? DateTime.now();
+        final db = DateTime.tryParse(b['created_at']?.toString() ?? '') ?? DateTime.now();
+        return da.compareTo(db);
+      });
+      if (!mounted) return;
+      setState(() => state = ViewData(rows));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => state = ViewError(e.message));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => state = const ViewError('Could not load this queue.'));
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return buildList((context, user, _) {
       final colors = context.appColors;
       final userId = user['id'] as String;
       final documents = _documents[userId];
+
+      final createdAt = DateTime.tryParse(user['created_at']?.toString() ?? '');
+      Widget? delayBadge;
+      if (createdAt != null) {
+        final diff = DateTime.now().difference(createdAt);
+        final isDelayed = diff.inHours >= 24;
+        final waitString = diff.inDays > 0
+            ? '${diff.inDays}d waiting'
+            : (diff.inHours > 0 ? '${diff.inHours}h waiting' : '${diff.inMinutes}m waiting');
+        delayBadge = Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: isDelayed ? Colors.red.shade50 : Colors.amber.shade50,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: isDelayed ? Colors.red.shade400 : Colors.amber.shade400,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isDelayed ? Icons.warning_amber_rounded : Icons.schedule,
+                size: 13,
+                color: isDelayed ? Colors.red.shade700 : Colors.amber.shade800,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                isDelayed ? 'Delayed: $waitString' : waitString,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: isDelayed ? Colors.red.shade800 : Colors.amber.shade900,
+                ),
+              ),
+            ],
+          ),
+        );
+      }
 
       return AppCard(
         padding: EdgeInsets.zero,
@@ -397,12 +1056,19 @@ class _ApplicantQueueTabState extends _QueueTabState<_ApplicantQueueTab> {
           onExpansionChanged: (open) {
             if (open) _loadDocuments(userId);
           },
-          title: Text(
-            user['full_name'] as String? ?? 'Unnamed',
-            style: Theme.of(context)
-                .textTheme
-                .titleSmall
-                ?.copyWith(fontWeight: FontWeight.w700),
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  user['full_name'] as String? ?? 'Unnamed',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              ?delayBadge,
+            ],
           ),
           subtitle: Text(
             '${user['role'] ?? ''} · ${user['email'] ?? ''}',
@@ -479,16 +1145,70 @@ class _CorrectionQueueTabState extends _QueueTabState<_CorrectionQueueTab> {
   String get emptyMessage => 'Suggested fixes to shop details appear here.';
 
   Future<void> _decide(Map<String, dynamic> report, bool approve) async {
+    String? reason;
+    if (!approve) {
+      reason = await _askReason(report['shop_name'] as String? ?? 'this shop');
+      if (reason == null) return;
+    }
     try {
       await ApiClient.instance.patch(
         '/crowdsource/shop-corrections/${report['id']}/status',
-        body: {'status': approve ? 'approved' : 'rejected'},
+        body: {
+          'status': approve ? 'approved' : 'rejected',
+          if (reason != null && reason.isNotEmpty) 'reason': reason,
+        },
       );
       toast(approve ? 'Correction applied' : 'Correction rejected');
       await load();
     } on ApiException catch (e) {
       toast(e.message);
     }
+  }
+
+  Future<String?> _askReason(String target) async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Reason for Rejection'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Specify why this correction for "$target" is being rejected. The reporter will be notified.',
+              style: Theme.of(dialogContext).textTheme.bodySmall,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              maxLines: 2,
+              maxLength: 200,
+              decoration: const InputDecoration(
+                hintText: 'e.g. Information could not be verified',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isEmpty) return;
+              Navigator.pop(dialogContext, text);
+            },
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

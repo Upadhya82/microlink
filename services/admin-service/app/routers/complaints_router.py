@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, get_current_user, require_admin
 from app.database import get_db
-from app.event_bus import publish_event
+from app.event_bus import notify_users, publish_event
 from app.models import Complaint, ComplaintStatus
 from app.schemas import ComplaintCreateRequest, ComplaintResponse, ComplaintUpdateRequest
 
@@ -79,4 +79,14 @@ async def update_complaint(
     await publish_event(
         "complaint.updated", {"complaint_id": complaint.id, "status": complaint.status.value}
     )
+    if complaint.complainant_id and payload.status in (ComplaintStatus.resolved, ComplaintStatus.dismissed):
+        is_resolved = payload.status == ComplaintStatus.resolved
+        title = f"Complaint {complaint.subject}: Resolved" if is_resolved else f"Complaint {complaint.subject}: Dismissed"
+        resp_text = f" Admin response: {complaint.admin_response}" if complaint.admin_response else ""
+        body = (
+            f"Your complaint '{complaint.subject}' was marked as resolved.{resp_text}"
+            if is_resolved
+            else f"Your complaint '{complaint.subject}' was dismissed by administrator.{resp_text}"
+        )
+        await notify_users([complaint.complainant_id], title, body, kind="support")
     return complaint

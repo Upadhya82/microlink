@@ -20,6 +20,8 @@ import '../../../core/utils/validators.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/required_fields_note.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/list_filter_bar.dart';
+import '../../../core/widgets/order_filters.dart';
 import '../../../core/widgets/rating_chip.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/status_badge.dart';
@@ -47,6 +49,8 @@ class DriverHomeScreen extends StatefulWidget {
 }
 
 class _DriverHomeScreenState extends State<DriverHomeScreen> {
+  /// Filter on the Available deliveries list (see order_filters.dart).
+  String _jobFilter = 'all';
   _ProfileLoadState _profileLoadState = _ProfileLoadState.loading;
   String _profileError = '';
   Map<String, dynamic>? _profile;
@@ -859,21 +863,41 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             emptyMessage: _emptyOrdersReason(),
             emptyIcon: Icons.explore_off_outlined,
             loadingSkeleton: const SkeletonList(itemCount: 3, itemHeight: 96),
-            builder: (context, orders) => ListView.separated(
-              itemCount: orders.length,
-              separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
-              itemBuilder: (context, index) {
-                final order = orders[index];
-                return _AvailableOrderTile(
-                  key: ValueKey(order.id),
-                  order: order,
-                  canAccept: !hasActiveOrder,
-                  onAccept: () => _acceptOrder(order),
-                  onDecline: () => _rejectOrder(order, reason: 'declined'),
-                  onTimeout: () => _rejectOrder(order, reason: 'timeout'),
-                );
-              },
-            ),
+            builder: (context, allOrders) {
+              final orders = filterAvailableJobs(allOrders, _jobFilter);
+              return Column(
+                children: [
+                  ListFilterBar<String>(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    options: availableJobFilterOptions(allOrders),
+                    selected: _jobFilter,
+                    onSelected: (value) => setState(() => _jobFilter = value),
+                  ),
+                  if (orders.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(AppSpacing.lg),
+                      child: Text('No deliveries match this filter.'),
+                    ),
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: orders.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
+                      itemBuilder: (context, index) {
+                        final order = orders[index];
+                        return _AvailableOrderTile(
+                          key: ValueKey(order.id),
+                          order: order,
+                          canAccept: !hasActiveOrder,
+                          onAccept: () => _acceptOrder(order),
+                          onDecline: () => _rejectOrder(order, reason: 'declined'),
+                          onTimeout: () => _rejectOrder(order, reason: 'timeout'),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ],

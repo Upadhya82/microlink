@@ -9,9 +9,9 @@ and "popular products" needs per-product view/order data that no service
 records yet.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -20,12 +20,14 @@ from app.auth import CurrentUser, get_current_user
 from app.config import settings
 from app.database import get_db
 from app.models import AnalyticsEventType, Product, Shop, ShopAlert, ShopAnalyticsEvent
-from app.schemas import ShopAnalyticsResponse
+from app.schemas import ShopAnalyticsHistoryResponse, ShopAnalyticsResponse
 
 router = APIRouter(prefix="/shops/{shop_id}/analytics", tags=["shop analytics"])
 
 PEAK_HOURS_WINDOW_DAYS = 30
 MAX_EVENT_ROWS = 20000
+# The period view reads raw event times; this keeps one request bounded.
+MAX_HISTORY_EVENT_ROWS = 200000
 
 
 def _count_events(db: Session, shop_id: str, event_type: AnalyticsEventType) -> int:
@@ -109,4 +111,80 @@ async def get_shop_analytics(
         rating_count=shop.rating_count or 0,
         stock_summary=stock_summary,
         peak_hours=logic.peak_hours(view_times, offset_minutes=settings.local_utc_offset_minutes),
+    )
+
+
+@router.get("/history", response_model=ShopAnalyticsHistoryResponse)
+async def get_shop_analytics_history(
+    shop_id: str,
+    start: date | None = Query(default=None, description="First local day (YYYY-MM-DD). Default: the day the shop was added."),
+    end: date | None = Query(default=None, description="Last local day (YYYY-MM-DD). Default: today."),
+    granularity: str = Query(default="month", pattern="^(day|month|year)$"),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Shop views and search impressions for a chosen period, per day, month or year.
+
+    Added for the owner's "Performance over time" section, so they can look
+    at any year or month since they joined. The existing analytics above is
+    untouched.
+    """
+    shop = db.get(Shop, shop_id)
+    if shop is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop not found")
+    if current_user.role != "admin" and shop.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="You do not own this shop"
+        )
+
+    offset = settings.local_utc_offset_minutes
+    today = logic.to_local(datetime.now(timezone.utc), offset).date()
+    shop_added = logic.to_local(shop.created_at, offset).date() if shop.created_at else today
+    start = start or shop_added
+    end = end or today
+    if end < start:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The end date must be on or after the start date.",
+        )
+    if granularity == "day" and (end - start).days + 1 > logic.MAX_DAILY_SPAN_DAYS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Pick a period of one year or less to see it day by day.",
+        )
+
+    begin_utc, after_utc = logic.local_window_utc(start, end, offset)
+    rows = (
+        db.query(ShopAnalyticsEvent.event_type, ShopAnalyticsEvent.created_at)
+        .filter(
+            ShopAnalyticsEvent.shop_id == shop_id,
+            ShopAnalyticsEvent.created_at >= begin_utc,
+            ShopAnalyticsEvent.created_at < after_utc,
+        )
+        .limit(MAX_HISTORY_EVENT_ROWS)
+        .all()
+    )
+    view_times = [when for kind, when in rows if kind == AnalyticsEventType.view]
+    impression_times = [
+        when for kind, when in rows if kind == AnalyticsEventType.search_impression
+    ]
+    views = logic.count_by_period(view_times, start, end, granularity, offset)
+    impressions = logic.count_by_period(impression_times, start, end, granularity, offset)
+
+    return ShopAnalyticsHistoryResponse(
+        shop_id=shop_id,
+        shop_created_at=shop.created_at,
+        start=start,
+        end=end,
+        granularity=granularity,
+        buckets=[
+            {
+                "period": key,
+                "views": views.get(key, 0),
+                "search_impressions": impressions.get(key, 0),
+            }
+            for key in logic.period_keys(start, end, granularity)
+        ],
+        total_views=sum(views.values()),
+        total_search_impressions=sum(impressions.values()),
     )

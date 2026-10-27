@@ -269,14 +269,19 @@ String formatDateTime(DateTime moment) {
   return '${local.day}/${local.month}/${local.year} $hh:$mm';
 }
 
+/// The stock line under a product. With a [quantity], customers also see
+/// how many are left -- right down to the last one.
 String stockLabel(String status, {int? quantity}) {
+  final known = quantity != null && quantity > 0;
   switch (status) {
     case 'low_stock':
-      return (quantity != null && quantity > 0) ? 'Low stock · $quantity left' : 'Low stock';
+      if (!known) return 'Low stock';
+      return quantity == 1 ? 'Low stock · Only 1 left' : 'Low stock · $quantity left';
     case 'out_of_stock':
       return 'Out of stock';
     default:
-      return 'In stock';
+      if (!known) return 'In stock';
+      return quantity == 1 ? 'In stock · Only 1 left' : 'In stock · $quantity available';
   }
 }
 
