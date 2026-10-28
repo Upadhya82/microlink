@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/models/app_notification.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/session_manager.dart';
@@ -69,12 +70,86 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (!mounted) return;
+      await _greetIfJustVerified(user['role'] as String?);
+      if (!mounted) return;
       Navigator.pushNamedAndRemoveUntil(context, AppRoutes.home, (route) => false);
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      // An unapproved shop owner or agent is refused here, and this is the
+      // only place they can read the admin's decision -- a snackbar is gone
+      // before a rejection reason can be read.
+      if (e.isForbidden) {
+        await _showRefusal(e.message);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  Future<void> _showRefusal(String message) {
+    final rejected = message.contains('not approved');
+    final waiting = message.contains('waiting for admin approval');
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: Icon(
+          rejected
+              ? Icons.cancel_outlined
+              : (waiting ? Icons.hourglass_top_rounded : Icons.block_outlined),
+          color: rejected ? Theme.of(dialogContext).colorScheme.error : null,
+        ),
+        title: Text(
+          rejected
+              ? 'Application not approved'
+              : (waiting ? 'Waiting for approval' : 'Cannot sign in'),
+        ),
+        content: Text(message),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A shop owner or agent signing in for the first time since an admin
+  /// approved them is shown the "Congratulations! You are verified" message
+  /// admin-service stored for them (link route "verified"), then it is
+  /// marked read so it greets them once. Best effort: never holds up login.
+  Future<void> _greetIfJustVerified(String? role) async {
+    if (role != 'shop_owner' && role != 'delivery_agent') return;
+    try {
+      final rows = await ApiClient.instance.get(
+        '/notifications/me',
+        query: {'unread_only': true, 'limit': 20},
+      ) as List;
+      final greeting = rows
+          .whereType<Map>()
+          .map((e) => AppNotification.fromJson(Map<String, dynamic>.from(e)))
+          .where((n) => n.linkRoute == 'verified')
+          .firstOrNull;
+      if (greeting == null || !mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          icon: const Icon(Icons.verified_rounded, size: 40),
+          title: Text(greeting.title),
+          content: Text(greeting.body),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Get started'),
+            ),
+          ],
+        ),
+      );
+      await ApiClient.instance.patch('/notifications/${greeting.id}/read');
+    } catch (_) {
+      // The message is still waiting in their notifications.
     }
   }
 

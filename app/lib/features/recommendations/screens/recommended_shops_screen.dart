@@ -13,7 +13,6 @@ import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/list_filter_bar.dart';
 import '../../../core/widgets/rating_chip.dart';
 import '../../../core/widgets/shop_filters.dart';
-import '../../shop_discovery/shop_discovery_support.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../../../core/widgets/branded_app_bar.dart';
 
@@ -323,10 +322,6 @@ class _RecommendationCard extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           RatingChip(rating: shop.ratingAvg),
-                          if (shop.showsNotVerifiedChip) ...[
-                            const SizedBox(height: 4),
-                            const NotVerifiedChip(compact: true),
-                          ],
                         ],
                       ),
                     ],

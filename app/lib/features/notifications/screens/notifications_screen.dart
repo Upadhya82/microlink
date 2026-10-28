@@ -218,7 +218,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   bool _isTappable(AppNotification notification) {
     final route = notification.linkRoute;
-    return route != null && route != 'login';
+    // 'verified' is the congratulations message: it has nowhere to send
+    // the user, only something to tell them.
+    return route != null && route != 'login' && route != 'verified';
   }
 
   (IconData, Color) _kindStyle(BuildContext context, String kind) {

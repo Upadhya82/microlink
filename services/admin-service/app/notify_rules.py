@@ -53,6 +53,22 @@ def _row(user_id: str, title: str, body: str, kind: str, link: object) -> dict:
     }
 
 
+# What a newly approved account can now do, by role. An unapproved owner or
+# agent cannot sign in at all, so this is read on their first login after
+# approval -- with a fresh token that already carries the verified claim.
+_VERIFIED_BODY = {
+    "shop_owner": (
+        "An admin reviewed your documents and approved your shop owner account. "
+        "You can now create your shop and add your products."
+    ),
+    "delivery_agent": (
+        "An admin reviewed your documents and approved your delivery agent account. "
+        "Go online to start receiving delivery requests."
+    ),
+    None: "An admin reviewed your documents and approved your account.",
+}
+
+
 def notifications_from_event(envelope: dict) -> list[dict]:
     """Return one dict per notification row this envelope should create.
 
@@ -60,9 +76,9 @@ def notifications_from_event(envelope: dict) -> list[dict]:
 
     * `notify.users` -- the generic channel every service publishes through
       event_bus.notify_users(). One row per unique user id.
-    * `user.verified` -- user-service verifying an account. The user has to
-      sign in again to pick up a token carrying the new verified claim, so
-      they get told that rather than silently wondering why nothing changed.
+    * `user.verified` -- user-service approving a shop owner or delivery
+      agent. They could not sign in before, so the "Congratulations, you
+      are verified" row is what greets them on their first login.
     * `shop.cancellation_threshold` -- a shop has cancelled too many orders
       in too few days (item 8). One row per admin, so somebody looks at it.
 
@@ -94,11 +110,12 @@ def notifications_from_event(envelope: dict) -> list[dict]:
         return [
             _row(
                 user_id,
-                "Your account has been verified",
-                "An admin approved your account. Please log out and sign in again "
-                "to start using the features it unlocks.",
+                "Congratulations! You are verified",
+                _VERIFIED_BODY.get(data.get("role"), _VERIFIED_BODY[None]),
                 "account",
-                {"route": "login"},
+                # "verified" is what the app looks for after login, to greet
+                # the user with this message the first time they sign in.
+                {"route": "verified"},
             )
         ]
 
@@ -126,3 +143,37 @@ def notifications_from_event(envelope: dict) -> list[dict]:
         ]
 
     return []
+
+
+def superseded_by_event(envelope: dict) -> tuple[str, frozenset[str]] | None:
+    """Which of a user's unread notifications an event makes out of date.
+
+    Returns (user_id, link routes) for the rows to mark read, or None.
+
+    * `user.verified` -- an applicant who was turned down, fixed it, and has
+      now been approved should not open their notifications to find "Your
+      application was not approved" still unread beside "Congratulations".
+      The rejection notice links to the documents screen, which is how it is
+      recognised.
+    """
+    if not isinstance(envelope, dict) or envelope.get("event") != "user.verified":
+        return None
+    data = envelope.get("data")
+    if not isinstance(data, dict):
+        return None
+    user_id = data.get("user_id") or data.get("id")
+    if not isinstance(user_id, str) or not user_id:
+        return None
+    return user_id, frozenset({"documents"})
+
+
+def link_route(link_text: object) -> str | None:
+    """The `route` of a stored link (JSON text), or None if it has none."""
+    if not isinstance(link_text, str):
+        return None
+    try:
+        value = json.loads(link_text)
+    except (TypeError, ValueError):
+        return None
+    route = value.get("route") if isinstance(value, dict) else None
+    return route if isinstance(route, str) else None

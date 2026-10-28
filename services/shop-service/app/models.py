@@ -91,6 +91,12 @@ class Shop(Base):
     verified_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # "admin" or "community" -- which of the two routes verified this shop.
     verified_via: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # When an admin last tapped "Leave pending" on it: looked at, not ready
+    # (usually too few products), parked with a note. The review queue keeps
+    # these out of its main list until the shop becomes ready. A dedicated
+    # column rather than "has a status_reason", because an owner closing
+    # their own shop with a reason also sets that. Cleared on verification.
+    left_pending_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Item 10: when the owner was told their verified shop had dropped below
     # the listable-product threshold. Cleared when it climbs back, so the
     # next drop warns them again rather than staying silent forever.

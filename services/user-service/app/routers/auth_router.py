@@ -215,6 +215,26 @@ async def register_application(
     return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
 
 
+def _not_approved_message(user: User) -> str:
+    """What an unapproved shop owner or delivery agent sees at login.
+
+    They cannot sign in until approved, so this message is the only place a
+    rejected applicant can learn the admin's decision -- the in-app
+    notification is there too, but behind a login they cannot complete.
+    """
+    reason = (user.rejection_reason or "").strip()
+    if reason:
+        return (
+            "Your application was not approved. "
+            f"Reason: {reason} "
+            "Please contact MicroLink support to correct your documents."
+        )
+    return (
+        "Your account is waiting for admin approval. "
+        "You will be able to log in once it has been reviewed."
+    )
+
+
 @router.post("/login", response_model=TokenResponse)
 async def login(payload: LoginRequest, db: Session = Depends(get_db)):
     locked_for = await login_guard.seconds_locked(payload.email)
@@ -242,10 +262,7 @@ async def login(payload: LoginRequest, db: Session = Depends(get_db)):
     if user.role in _ROLES_NEEDING_VERIFICATION and not user.is_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Your account is waiting for admin approval. "
-                "You will be able to log in once it has been reviewed."
-            ),
+            detail=_not_approved_message(user),
         )
 
     await login_guard.clear(payload.email)

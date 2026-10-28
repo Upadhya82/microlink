@@ -138,6 +138,8 @@ class ShopResponse(BaseModel):
     reopen_at: datetime | None = None
     delivery_available: bool = False
     is_verified: bool = False
+    # Set when an admin left the shop pending; null otherwise.
+    left_pending_at: datetime | None = None
     photos: list[str] = Field(default_factory=list)
     trust_score: float = 0.0  # same number as rating_avg, named as in the SRS
     # Community verification: how many nearby customers have confirmed this
