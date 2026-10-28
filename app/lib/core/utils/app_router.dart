@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../features/account/screens/verification_documents_screen.dart';
+import '../../features/admin/screens/admin_applicant_screen.dart';
 import '../../features/admin/screens/admin_dashboard_screen.dart';
 import '../../features/admin/screens/admin_review_screen.dart';
 import '../../features/ads/screens/submit_ad_screen.dart';
@@ -90,6 +91,9 @@ class AppRouter {
         // An int argument opens a given tab (1 = shop suggestions).
         final tab = settings.arguments is int ? settings.arguments as int : 0;
         return _page(AdminReviewScreen(initialTab: tab), settings);
+      case AppRoutes.adminApplicant:
+        final args = settings.arguments as AdminApplicantArgs;
+        return _page(AdminApplicantScreen(user: args.user), settings);
       case AppRoutes.settings:
         return _page(const SettingsScreen(), settings);
       case AppRoutes.about:

@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from app.notify_rules import notifications_from_event
+from app.notify_rules import link_route, notifications_from_event, superseded_by_event
 
 
 def envelope(event, data, source="shop-service"):
@@ -74,17 +74,48 @@ class NotifyUsersEventTests(unittest.TestCase):
 
 
 class UserVerifiedEventTests(unittest.TestCase):
-    def test_verified_user_is_told_to_sign_in_again(self):
+    def test_verified_user_is_congratulated(self):
         rows = notifications_from_event(
             envelope("user.verified", {"user_id": "u9", "role": "shop_owner"}, "user-service")
         )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["user_id"], "u9")
         self.assertEqual(rows[0]["kind"], "account")
-        self.assertIn("sign in again", rows[0]["body"])
+        self.assertEqual(rows[0]["title"], "Congratulations! You are verified")
+        self.assertIn("create your shop", rows[0]["body"])
+        # The app greets the user with this on their next login.
+        self.assertIn('"route": "verified"', rows[0]["link"])
+
+    def test_verified_agent_is_told_to_go_online(self):
+        rows = notifications_from_event(
+            envelope("user.verified", {"user_id": "a1", "role": "delivery_agent"})
+        )
+        self.assertIn("Go online", rows[0]["body"])
+
+    def test_verified_without_a_role_still_gets_a_message(self):
+        rows = notifications_from_event(envelope("user.verified", {"user_id": "x1"}))
+        self.assertIn("approved your account", rows[0]["body"])
 
     def test_verified_without_a_user_id_produces_nothing(self):
         self.assertEqual(notifications_from_event(envelope("user.verified", {})), [])
+
+
+class SupersededTests(unittest.TestCase):
+    def test_verification_retires_the_rejection_notice(self):
+        self.assertEqual(
+            superseded_by_event(envelope("user.verified", {"user_id": "u9"})),
+            ("u9", frozenset({"documents"})),
+        )
+
+    def test_other_events_retire_nothing(self):
+        self.assertIsNone(superseded_by_event(envelope("user.rejected", {"user_id": "u9"})))
+        self.assertIsNone(superseded_by_event(envelope("user.verified", {})))
+
+    def test_link_route_reads_stored_links(self):
+        self.assertEqual(link_route('{"route": "documents"}'), "documents")
+        self.assertIsNone(link_route("{}"))
+        self.assertIsNone(link_route("not json"))
+        self.assertIsNone(link_route(None))
 
 
 class IgnoredEventTests(unittest.TestCase):

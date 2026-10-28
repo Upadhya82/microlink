@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/constants/app_constants.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors_extension.dart';
@@ -9,14 +10,16 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/list_filter_bar.dart';
 import '../../../core/widgets/status_badge.dart';
-import '../widgets/admin_document_row.dart';
+import '../../../core/utils/route_args.dart';
 
 /// Admin tab for approving shop owner and delivery agent accounts.
 ///
 /// Backed by user-service through the gateway: `GET /users?is_verified=...`
-/// lists accounts and `PATCH /users/{id}/verify` approves one. Shop owners
-/// cannot create shops and delivery agents cannot accept orders until an
-/// admin has verified them here.
+/// lists accounts. Each card opens the applicant's profile and documents
+/// (AdminApplicantScreen), and the Verify / Reject decision is made there,
+/// after the admin has looked -- a Verify button on the card itself let an
+/// account be approved unseen. Shop owners cannot create shops and delivery
+/// agents cannot accept orders until an admin has verified them.
 class AdminUsersTab extends StatefulWidget {
   const AdminUsersTab({super.key});
 
@@ -33,6 +36,10 @@ class _VerifiableUser {
   final bool isVerified;
   final bool isActive;
   final DateTime? createdAt;
+  final String? rejectionReason;
+
+  /// The row as the server sent it, handed to the review screen whole.
+  final Map<String, dynamic> raw;
 
   const _VerifiableUser({
     required this.id,
@@ -43,6 +50,8 @@ class _VerifiableUser {
     required this.isVerified,
     required this.isActive,
     required this.createdAt,
+    required this.rejectionReason,
+    required this.raw,
   });
 
   factory _VerifiableUser.fromJson(Map<String, dynamic> json) {
@@ -55,6 +64,8 @@ class _VerifiableUser {
       isVerified: json['is_verified'] == true,
       isActive: json['is_active'] != false,
       createdAt: DateTime.tryParse(json['created_at']?.toString() ?? ''),
+      rejectionReason: json['rejection_reason']?.toString(),
+      raw: json,
     );
   }
 
@@ -68,13 +79,6 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
   bool _showPending = true;
   String _role = 'all';
   String _query = '';
-  String? _verifyingId;
-
-  // Each user's documents, fetched the first time the admin opens them --
-  // loading every file list up front would make the tab crawl. A null value
-  // means "still loading".
-  final Map<String, List<Map<String, dynamic>>?> _documents = {};
-  final Set<String> _documentsOpen = {};
 
   /// Bumped on every load; a response whose id is no longer current (the admin
   /// switched filter meanwhile) is dropped instead of overwriting the list.
@@ -134,84 +138,17 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
     _load();
   }
 
-  Future<void> _verify(_VerifiableUser user) async {
-    setState(() => _verifyingId = user.id);
-    try {
-      await ApiClient.instance.patch('/users/${user.id}/verify');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('${user.fullName} has been verified.')));
-      await _load(quiet: true);
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Could not verify the user.')));
-    } finally {
-      if (mounted) setState(() => _verifyingId = null);
-    }
-  }
-
-  /// Show or hide a user's documents. The admin is approving an identity, so
-  /// the ID, licence and police report have to be readable right here.
-  Future<void> _toggleDocuments(_VerifiableUser user) async {
-    if (_documentsOpen.remove(user.id)) {
-      setState(() {});
-      return;
-    }
-    setState(() => _documentsOpen.add(user.id));
-    if (_documents[user.id] != null) return;
-    setState(() => _documents[user.id] = null);
-    try {
-      final response = await ApiClient.instance.get('/users/${user.id}/documents');
-      final rows = (response as List)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
-      if (!mounted) return;
-      setState(() => _documents[user.id] = rows);
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _documents.remove(user.id);
-        _documentsOpen.remove(user.id);
-      });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _documents.remove(user.id);
-        _documentsOpen.remove(user.id);
-      });
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Could not load the documents.')));
-    }
-  }
-
-  Widget _buildDocuments(BuildContext context, _VerifiableUser user) {
-    final documents = _documents[user.id];
-    if (documents == null) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
-        child: LinearProgressIndicator(),
-      );
-    }
-    if (documents.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-        child: Text(
-          'No documents uploaded yet.',
-          style: Theme.of(context)
-              .textTheme
-              .bodySmall
-              ?.copyWith(color: context.appColors.textSecondary),
-        ),
-      );
-    }
-    return Column(
-      children: [for (final d in documents) AdminDocumentRow(document: d)],
+  /// Opens the applicant's profile and documents. The decision is made
+  /// there; this only reports it and refreshes the list.
+  Future<void> _openReview(_VerifiableUser user) async {
+    final outcome = await Navigator.pushNamed(
+      context,
+      AppRoutes.adminApplicant,
+      arguments: AdminApplicantArgs(user.raw),
     );
+    if (!mounted || outcome is! String) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(outcome)));
+    await _load(quiet: true);
   }
 
   String _joined(DateTime time) =>
@@ -288,8 +225,6 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
                   separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
                   itemBuilder: (context, index) {
                     final user = items[index];
-                    final verifying = _verifyingId == user.id;
-                    final documentsOpen = _documentsOpen.contains(user.id);
                     return AppCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -340,37 +275,30 @@ class _AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCl
                               ],
                             ),
                           ],
-                          const SizedBox(height: AppSpacing.sm),
-                          TextButton.icon(
-                            onPressed: () => _toggleDocuments(user),
-                            style: TextButton.styleFrom(
-                              padding: EdgeInsets.zero,
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            icon: Icon(
-                              documentsOpen ? Icons.expand_less : Icons.description_outlined,
-                              size: 18,
-                            ),
-                            label: Text(documentsOpen ? 'Hide documents' : 'View documents'),
-                          ),
-                          if (documentsOpen) _buildDocuments(context, user),
-                          if (!user.isVerified) ...[
-                            const SizedBox(height: AppSpacing.md),
-                            SizedBox(
-                              width: double.infinity,
-                              child: FilledButton.icon(
-                                onPressed: verifying ? null : () => _verify(user),
-                                icon: verifying
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
-                                      )
-                                    : const Icon(Icons.verified_outlined, size: 18),
-                                label: const Text('Verify'),
-                              ),
+                          if (_showPending && user.rejectionReason != null && user.rejectionReason!.isNotEmpty) ...[
+                            const SizedBox(height: AppSpacing.xs),
+                            Text(
+                              'Rejected: ${user.rejectionReason}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.bodySmall?.copyWith(color: colorScheme.error),
                             ),
                           ],
+                          const SizedBox(height: AppSpacing.md),
+                          SizedBox(
+                            width: double.infinity,
+                            child: _showPending
+                                ? FilledButton.icon(
+                                    onPressed: () => _openReview(user),
+                                    icon: const Icon(Icons.badge_outlined, size: 18),
+                                    label: const Text('View profile & documents'),
+                                  )
+                                : OutlinedButton.icon(
+                                    onPressed: () => _openReview(user),
+                                    icon: const Icon(Icons.badge_outlined, size: 18),
+                                    label: const Text('View profile & documents'),
+                                  ),
+                          ),
                         ],
                       ),
                     );

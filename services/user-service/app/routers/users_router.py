@@ -273,10 +273,14 @@ async def reject_user(
     await publish_event(
         "user.rejected", {"user_id": user.id, "role": user.role.value, "reason": payload.reason}
     )
+    role_label = "shop owner" if user.role == UserRole.shop_owner else "delivery agent"
     await notify_users(
         [user.id],
         "Your application was not approved",
-        payload.reason,
+        (
+            f"An admin reviewed your documents and did not approve your {role_label} "
+            f"account. Reason: {payload.reason}"
+        ),
         kind="account",
         link={"route": "documents"},
     )

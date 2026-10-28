@@ -41,6 +41,13 @@ class SubmitAdArgs {
 /// Optional context for the "Request Delivery Assistance" screen (SRS
 /// REQ-DELIV-1/2). When it is opened from a shop, the shop and its address are
 /// pre-filled as the (editable) pickup point.
+/// The account an admin is reviewing on the applicant screen, as
+/// `GET /users` returned it.
+class AdminApplicantArgs {
+  final Map<String, dynamic> user;
+  const AdminApplicantArgs(this.user);
+}
+
 class RequestDeliveryArgs {
   final String? shopId;
   final String? shopName;

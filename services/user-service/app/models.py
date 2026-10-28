@@ -40,6 +40,11 @@ class User(Base):
     )
     is_verified: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Why an admin turned a shop owner / delivery agent application down.
+    # The column was added by run_light_migrations but never mapped here, so
+    # the reason was set on the object, returned once, and never saved --
+    # the applicant had no way to find out why. Cleared on approval.
+    rejection_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now

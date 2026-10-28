@@ -10,7 +10,7 @@ import logging
 
 from app.database import SessionLocal
 from app.models import ActivityLog, Notification
-from app.notify_rules import notifications_from_event
+from app.notify_rules import link_route, notifications_from_event, superseded_by_event
 
 logger = logging.getLogger("admin-service.activity")
 
@@ -28,6 +28,16 @@ async def handle_event(envelope: dict) -> None:
         # so a notification is never recorded for an event we failed to log.
         for row in notifications_from_event(envelope):
             db.add(Notification(**row))
+        stale = superseded_by_event(envelope)
+        if stale is not None:
+            user_id, routes = stale
+            for old in (
+                db.query(Notification)
+                .filter(Notification.user_id == user_id, Notification.is_read.is_(False))
+                .all()
+            ):
+                if link_route(old.link) in routes:
+                    old.is_read = True
         db.commit()
     except Exception:
         logger.exception("Failed to record activity log entry for envelope: %r", envelope)

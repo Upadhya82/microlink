@@ -80,4 +80,5 @@ class AppRoutes {
   static const String about = '/settings/about';
   static const String verificationDocuments = '/account/documents';
   static const String adminReview = '/admin/review';
+  static const String adminApplicant = '/admin/applicant';
 }
