@@ -131,26 +131,4 @@ void main() {
       expect(tooltip.message, 'Orders from this shop are often late.');
     });
   });
-
-  group('the chip itself', () {
-    Future<void> pump(WidgetTester tester, Widget child) => tester.pumpWidget(
-          MaterialApp(theme: AppTheme.light, home: Scaffold(body: child)),
-        );
-
-    testWidgets('spells it out where there is room', (tester) async {
-      await pump(tester, const NotVerifiedChip());
-      expect(find.text('Not verified by an admin'), findsOneWidget);
-    });
-
-    testWidgets('shortens it on a crowded card', (tester) async {
-      await pump(tester, const NotVerifiedChip(compact: true));
-      expect(find.text('Not verified'), findsOneWidget);
-    });
-
-    testWidgets('explains itself on long press', (tester) async {
-      await pump(tester, const NotVerifiedChip());
-      final tooltip = tester.widget<Tooltip>(find.byType(Tooltip));
-      expect(tooltip.message, 'An admin has not checked this shop yet.');
-    });
-  });
 }

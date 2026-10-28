@@ -573,32 +573,6 @@ class ShopStatusBadge extends StatelessWidget {
   }
 }
 
-/// "Not verified" (item 6).
-///
-/// Every shop in the local data is unverified and a customer had no way to
-/// tell, so the badge is the whole point: it is shown only when the server
-/// actually said the shop is unverified, never on a shop we know nothing
-/// about.
-class NotVerifiedChip extends StatelessWidget {
-  /// Shortened on a crowded card; the shop page has room for the sentence.
-  final bool compact;
-
-  const NotVerifiedChip({super.key, this.compact = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final warning = context.appColors.warning;
-    return Tooltip(
-      message: 'An admin has not checked this shop yet.',
-      child: StatusBadge(
-        label: compact ? 'Not verified' : 'Not verified by an admin',
-        background: warning.withValues(alpha: 0.16),
-        foreground: Color.alphaBlend(Colors.black.withValues(alpha: 0.45), warning),
-      ),
-    );
-  }
-}
-
 /// "Often delayed" (item 4).
 ///
 /// A customer choosing between two shops could not tell that one of them

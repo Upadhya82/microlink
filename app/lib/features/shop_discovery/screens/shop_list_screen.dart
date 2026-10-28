@@ -1392,8 +1392,6 @@ class _ShopTile extends StatelessWidget {
                               'No ratings yet',
                               style: textTheme.bodySmall?.copyWith(color: colors.textSecondary),
                             ),
-                          if (extras.showsNotVerifiedChip)
-                            const NotVerifiedChip(compact: true),
                           if (extras.delayProne)
                             OftenDelayedChip(
                               medianPickupWaitMin: extras.medianPickupWaitMin,
