@@ -458,7 +458,11 @@ class _ShopDetailBody extends StatelessWidget {
                         'No ratings yet',
                         style: textTheme.bodySmall?.copyWith(color: colors.textSecondary),
                       ),
-                    if (extras.showsNotVerifiedChip) const NotVerifiedChip(),
+                    // No "Not verified by an admin" chip here: on an unverified
+                    // shop the "Is this shop really here?" card just below
+                    // already says no admin has checked it, and lets a
+                    // neighbour do something about it. The list cards keep
+                    // their compact chip, where there is no such card.
                     if (extras.delayProne)
                       OftenDelayedChip(
                         medianPickupWaitMin: extras.medianPickupWaitMin,
