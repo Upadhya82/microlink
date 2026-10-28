@@ -835,7 +835,7 @@ class _SuggestionQueueTabState extends _QueueTabState<_SuggestionQueueTab> {
               height: 150,
               width: double.infinity,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              errorBuilder: (_, _, _) => const SizedBox.shrink(),
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
