@@ -563,8 +563,10 @@ async def verify_shop(
     shop.verified_via = community.VERIFIED_VIA_ADMIN if payload.is_verified else None
     if not payload.is_verified:
         shop.status_reason = payload.reason or "Left Pending: Under Admin Review"
+        shop.left_pending_at = datetime.now(timezone.utc)
     else:
         shop.status_reason = None
+        shop.left_pending_at = None
     db.commit()
     db.refresh(shop)
 

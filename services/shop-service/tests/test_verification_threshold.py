@@ -202,6 +202,23 @@ class VerificationThresholdTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(self._shop().is_verified)
 
+    def test_leaving_a_shop_pending_marks_when(self):
+        response = self._verify(is_verified=False)
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(response.json()["left_pending_at"])
+        self.assertIsNotNone(self._shop().left_pending_at)
+
+    def test_verifying_clears_the_left_pending_mark(self):
+        self._verify(is_verified=False)
+        self._products(settings.min_products_to_verify)
+        response = self._verify()
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIsNone(response.json()["left_pending_at"])
+        self.assertIsNone(self._shop().status_reason)
+
+    def test_a_new_shop_has_not_been_left_pending(self):
+        self.assertIsNone(self._shop().left_pending_at)
+
     # --- the count in the response ---
     def test_the_response_reports_the_listable_count(self):
         self._products(3, quantity=10)

@@ -237,6 +237,16 @@ abstract class _QueueTabState<T extends StatefulWidget> extends State<T> {
     }
   }
 
+  /// The loaded rows this queue actually lists. Queues with sub-views (the
+  /// Shops tab's "To review" / "Left pending") narrow it; the rest show all.
+  List<Map<String, dynamic>> visibleRows(List<Map<String, dynamic>> rows) => rows;
+
+  /// A bar above the list, given every loaded row -- for sub-view chips.
+  Widget? buildHeader(List<Map<String, dynamic>> rows) => null;
+
+  /// Shown when rows were loaded but the current sub-view has none of them.
+  String get emptyViewMessage => 'Nothing here.';
+
   void toast(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
@@ -280,17 +290,28 @@ abstract class _QueueTabState<T extends StatefulWidget> extends State<T> {
         emptyMessage: emptyMessage,
         emptyIcon: Icons.inbox_outlined,
         loadingSkeleton: const SkeletonList(itemCount: 4),
-        builder: (context, rows) => ListView.builder(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          itemCount: rows.length,
-          itemBuilder: (context, index) => StaggerIn(
-            index: index,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.md),
-              child: itemBuilder(context, rows[index], index),
-            ),
-          ),
-        ),
+        builder: (context, rows) {
+          final shown = visibleRows(rows);
+          final header = buildHeader(rows);
+          final list = shown.isEmpty
+              ? ListView(
+                  padding: const EdgeInsets.all(AppSpacing.xl),
+                  children: [Center(child: Text(emptyViewMessage, textAlign: TextAlign.center))],
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  itemCount: shown.length,
+                  itemBuilder: (context, index) => StaggerIn(
+                    index: index,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                      child: itemBuilder(context, shown[index], index),
+                    ),
+                  ),
+                );
+          if (header == null) return list;
+          return Column(children: [header, Expanded(child: list)]);
+        },
       ),
     );
   }
@@ -313,13 +334,63 @@ class _ShopQueueTabState extends _QueueTabState<_ShopQueueTab> {
   @override
   String get emptyMessage => 'Every registered shop has been reviewed.';
 
+  /// "Left pending" parks a shop out of the main list. It comes back by
+  /// itself once it has the products it was waiting for, so a shop the
+  /// owner has fixed is never stranded where nobody looks.
+  bool _showLeftPending = false;
+
+  static bool _canVerify(Map<String, dynamic> shop) =>
+      ((shop['listable_product_count'] as num?)?.toInt() ?? 0) >=
+      AppConstants.minProductsToVerify;
+
+  static bool _isParked(Map<String, dynamic> shop) =>
+      shop['left_pending_at'] != null && !_canVerify(shop);
+
+  @override
+  List<Map<String, dynamic>> visibleRows(List<Map<String, dynamic>> rows) =>
+      rows.where((shop) => _isParked(shop) == _showLeftPending).toList();
+
+  @override
+  String get emptyViewMessage => _showLeftPending
+      ? 'No shops are left pending.'
+      : 'Nothing to review right now. Shops you left pending are under "Left pending" '
+          'and come back here once they have ${AppConstants.minProductsToVerify} products.';
+
+  @override
+  Widget? buildHeader(List<Map<String, dynamic>> rows) {
+    final parked = rows.where(_isParked).length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 0),
+      child: Row(
+        children: [
+          ChoiceChip(
+            label: Text('To review (${rows.length - parked})'),
+            selected: !_showLeftPending,
+            onSelected: (_) => setState(() => _showLeftPending = false),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          ChoiceChip(
+            label: Text('Left pending ($parked)'),
+            selected: _showLeftPending,
+            onSelected: (_) => setState(() => _showLeftPending = true),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _verify(Map<String, dynamic> shop, bool approve, {String? reason}) async {
     try {
       await ApiClient.instance.patch(
         '/shops/${shop['id']}/verify',
         body: {'is_verified': approve, if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim()},
       );
-      toast(approve ? '${shop['name']} verified successfully' : '${shop['name']} marked as Pending (Under Review)');
+      toast(approve
+          ? '${shop['name']} verified successfully'
+          : _canVerify(shop)
+              ? '${shop['name']} left pending.'
+              : '${shop['name']} moved to "Left pending". It comes back to review once it has '
+                  '${AppConstants.minProductsToVerify} products.');
       await load();
     } on ApiException catch (e) {
       toast(e.message);
@@ -435,7 +506,9 @@ class _ShopQueueTabState extends _QueueTabState<_ShopQueueTab> {
       final listed = (shop['listable_product_count'] as num?)?.toInt() ?? 0;
       final canVerify = listed >= AppConstants.minProductsToVerify;
       final statusReason = shop['status_reason'] as String?;
-      final hasLeftPending = statusReason != null && statusReason.trim().isNotEmpty;
+      // Parked by "Leave pending" -- not merely carrying a note, which an
+      // owner closing their own shop with a reason would also have.
+      final hasLeftPending = _isParked(shop);
       final statusBadge = Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
@@ -571,11 +644,16 @@ class _ShopQueueTabState extends _QueueTabState<_ShopQueueTab> {
                       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
                     ),
                     onPressed: () => _promptLeavePending(shop),
-                    child: const FittedBox(
+                    child: FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
-                        children: [Icon(Icons.schedule, size: 16), SizedBox(width: 4), Text('Leave pending')],
+                        children: [
+                          Icon(hasLeftPending ? Icons.edit_note_rounded : Icons.schedule, size: 16),
+                          const SizedBox(width: 4),
+                          // Already parked: tapping again only changes the note.
+                          Text(hasLeftPending ? 'Edit note' : 'Leave pending'),
+                        ],
                       ),
                     ),
                   ),
