@@ -57,74 +57,116 @@ async def create_shop_report(
         },
     )
 
-    # Who hears about it depends on the phone number:
-    #   * it belongs to a MicroLink account -> straight to the admins
-    #     ("fast track"); the neighbours are not asked to confirm it.
-    #   * otherwise (or no number) -> people nearby are asked to confirm it.
+    # Who hears about it:
+    #   * the admins -- always, with everything the reporter typed in, so the
+    #     admin can judge it (and ring the shop) straight from the alert.
+    #   * people nearby -- asked to confirm it, unless the phone number
+    #     belongs to a MicroLink account ("fast track"): then a known user
+    #     stands behind the shop and the neighbours are not asked.
     owner = await people.phone_owner(report.phone)
     if owner is not None:
         report.phone_user_id = str(owner["id"])
         db.commit()
         db.refresh(report)
-        admins = await people.admin_ids()
-        if admins:
-            await notify_users(
-                admins,
-                f"Ready for review: {report.shop_name}",
-                f"'{report.shop_name}' ({report.category}) was suggested with the phone "
-                f"number of MicroLink user {owner.get('full_name') or 'on file'}. "
-                "It skips the neighbour check -- you can approve it now.",
-                kind="crowdsource",
-                link={"route": "admin", "id": report.id},
-            )
-    else:
+
+    await _tell_admins_about(report, owner)
+    if owner is None:
         await _ask_people_nearby(db, report, current_user.id)
 
-    return _with_counts(db, report)
+    return (await _name_commenters([_with_counts(db, report)]))[0]
 
 
-def _everyone_else(reporter_id: str) -> list[str]:
+def _summary_lines(report: NewShopReport) -> str:
+    """Everything the reporter filled in, one fact per line, for the admin alert."""
+    hours = (
+        f"{report.opening_time} - {report.closing_time}"
+        if report.opening_time and report.closing_time
+        else "not given"
+    )
+    phone = report.phone.strip() if report.phone and report.phone.strip() else "not given"
+    lines = [
+        f"Category: {report.category}",
+        f"Address: {report.address or 'not given'}",
+        f"Phone: {phone}",
+        f"Hours: {hours}",
+        f"Location: {report.latitude:.5f}, {report.longitude:.5f}",
+    ]
+    if report.description and report.description.strip():
+        description = report.description.strip()
+        if len(description) > 200:
+            description = description[:197] + "..."
+        lines.append(f"Description: {description}")
+    return "\n".join(lines)
+
+
+async def _tell_admins_about(report: NewShopReport, owner: dict | None) -> None:
+    """Every new suggestion reaches every admin, fast-tracked or not."""
+    try:
+        admins = await people.admin_ids()
+        if not admins:
+            return
+        names = await people.user_names([report.reporter_id])
+        reporter = people.name_for(names, report.reporter_id)
+        if owner is not None:
+            title = f"Ready for review: {report.shop_name}"
+            lead = (
+                f"{reporter} suggested '{report.shop_name}'. The phone number belongs to "
+                f"MicroLink user {owner.get('full_name') or 'on file'}, so it skips the "
+                "neighbour check -- you can approve it now."
+            )
+        else:
+            title = f"New shop suggested: {report.shop_name}"
+            lead = (
+                f"{reporter} suggested '{report.shop_name}'. People nearby have been "
+                "asked to confirm it; their answers show up live in Review & Monitor."
+            )
+        await notify_users(
+            admins,
+            title,
+            f"{lead}\n{_summary_lines(report)}",
+            kind="report",
+            link={"route": "admin_review", "id": report.id},
+        )
+    except Exception:
+        logger.exception("Could not tell the admins about %s", report.id)
+
+
+async def _everyone_else(reporter_id: str) -> list[str]:
     """Every active non-admin user except the reporter.
 
     The fallback when nobody is known to be near a suggested shop (a fresh
     install, or a quiet area), so the suggestion still gets seen.
     """
-    try:
-        import psycopg2
+    return [uid for uid in await people.active_non_admin_ids() if uid != str(reporter_id)]
 
-        conn = psycopg2.connect("postgresql://microlink:microlink@postgres:5432/user_db")
-        cur = conn.cursor()
-        cur.execute("SELECT id, role FROM users WHERE is_active = true AND id != %s;", (str(reporter_id),))
-        rows = cur.fetchall()
-        conn.close()
-        return [str(r[0]) for r in rows if r[1] != "admin"]
-    except Exception as err:
-        logger.warning("Error querying users for the shop suggestion notification: %s", err)
-        return []
+
+async def _people_near_report(
+    db: Session, report: NewShopReport, exclude: set[str]
+) -> list[str]:
+    """Who to ask about a suggestion: people known nearby, else everyone."""
+    near = await nearby_people.find_users_near(report.latitude, report.longitude, db=db)
+    recipients = sorted(near - exclude - {None, ""})
+    if not recipients:
+        recipients = sorted(set(await _everyone_else(report.reporter_id)) - exclude)
+    return recipients[: nearby_people.MAX_NOTIFIED]
 
 
 async def _ask_people_nearby(db: Session, report: NewShopReport, reporter_id: str) -> None:
     """Ask everyone known to be within the notify radius to confirm it."""
     try:
-        near = await nearby_people.find_users_near(report.latitude, report.longitude, db=db)
-        recipients = sorted(near - {reporter_id, None, ""})
-        if not recipients:
-            recipients = _everyone_else(reporter_id)
+        recipients = await _people_near_report(db, report, {str(reporter_id)})
         if not recipients:
             return
         await notify_users(
-            recipients[: nearby_people.MAX_NOTIFIED],
+            recipients,
             f"New Shop Nearby: '{report.shop_name}'",
             f"Someone suggested '{report.shop_name}' ({report.category}) at {report.address}. "
             "Tap to confirm if this shop is really there!",
-            kind="crowdsource",
+            kind="report",
             link={"route": "confirm_shops", "id": report.id},
         )
     except Exception:
         logger.exception("Could not ask people near %s", report.id)
-
-
-
 
 
 @router.get("/shop-reports", response_model=list[NewShopReportResponse])
@@ -191,7 +233,81 @@ async def approved_shop_suggestions(
         items.append(item)
     if lat is not None and lng is not None:
         items.sort(key=lambda item: item.distance_km)
-    return items[:limit]
+    items = items[:limit]
+    await _add_people_and_comments(db, items, {r.id: r.reporter_id for r in reports})
+    return items
+
+
+async def _add_people_and_comments(
+    db: Session, items: list[ApprovedSuggestionResponse], reporters: dict[str, str]
+) -> None:
+    """Fill in who suggested each shop, how many comments it has, and the
+    newest comment with its author -- for the moving cards on Home.
+
+    One query per comment table for all the suggestions together, and one
+    name lookup for everybody, so a rail of 20 cards is still four queries.
+    Best effort: if names cannot be looked up they show as "MicroLink user".
+    """
+    if not items:
+        return
+    ids = [item.id for item in items]
+    # (report id, author id, text, when) for every comment and reply.
+    entries: list[tuple[str, str, str, object]] = []
+    for row in (
+        db.query(ShopReportConfirmation)
+        .filter(ShopReportConfirmation.report_id.in_(ids))
+        .all()
+    ):
+        if row.comment and row.comment.strip():
+            entries.append((row.report_id, row.user_id, row.comment.strip(), row.created_at))
+    for row in (
+        db.query(SuggestionCommentReply)
+        .filter(SuggestionCommentReply.report_id.in_(ids))
+        .all()
+    ):
+        entries.append((row.report_id, row.user_id, row.text, row.created_at))
+    for row in (
+        db.query(SuggestionGeneralComment)
+        .filter(SuggestionGeneralComment.report_id.in_(ids))
+        .all()
+    ):
+        entries.append((row.report_id, row.user_id, row.text, row.created_at))
+
+    counts: dict[str, int] = {}
+    latest: dict[str, tuple[str, str, object]] = {}
+    for report_id, user_id, text, when in entries:
+        counts[report_id] = counts.get(report_id, 0) + 1
+        current = latest.get(report_id)
+        if current is None or _later(when, current[2]):
+            latest[report_id] = (user_id, text, when)
+
+    wanted = {reporters.get(i) for i in ids} | {v[0] for v in latest.values()}
+    names = await people.user_names(u for u in wanted if u)
+    for item in items:
+        reporter = reporters.get(item.id)
+        if reporter:
+            item.reporter_name = people.name_for(names, reporter)
+        item.comment_count = counts.get(item.id, 0)
+        newest = latest.get(item.id)
+        if newest is not None:
+            item.latest_comment_author = people.name_for(names, newest[0])
+            text = " ".join(newest[1].split())
+            item.latest_comment = text if len(text) <= 120 else text[:117] + "..."
+
+
+def _later(a, b) -> bool:
+    """Whether timestamp `a` is after `b`; a missing time counts as oldest.
+
+    SQLite (the tests) hands back naive datetimes and PostgreSQL aware ones,
+    so both are compared as naive UTC.
+    """
+    if a is None:
+        return False
+    if b is None:
+        return True
+    a = a.replace(tzinfo=None) if getattr(a, "tzinfo", None) else a
+    b = b.replace(tzinfo=None) if getattr(b, "tzinfo", None) else b
+    return a > b
 
 
 @router.patch("/shop-reports/{report_id}/status", response_model=NewShopReportResponse)
@@ -266,7 +382,7 @@ async def _notify_people_nearby(
             f"{report.shop_name} ({report.category}) at {report.address or 'a spot near you'} "
             "was suggested by a MicroLink user and has just been approved. "
             "See it under User Suggestions on Home.",
-            kind="crowdsource",
+            kind="report",
             link={"route": "home"},
         )
     except Exception:
@@ -367,8 +483,11 @@ async def _name_commenters(responses: list[NewShopReportResponse]) -> list[NewSh
         for item in response.comments_detail
     }
     ids |= {response.phone_user_id for response in responses if response.phone_user_id}
+    ids |= {response.reporter_id for response in responses if response.reporter_id}
     names = await people.user_names(i for i in ids if i)
     for response in responses:
+        if response.reporter_id:
+            response.reporter_name = people.name_for(names, response.reporter_id)
         for item in response.comments_detail:
             item["author_name"] = people.name_for(names, item.get("user_id"))
         if response.phone_user_id:
@@ -512,8 +631,18 @@ async def confirm_shop_report(
             "Your reported shop was confirmed",
             f"{positive} of {total} people nearby confirmed {report.shop_name}. "
             "An administrator will review it next.",
-            kind="crowdsource",
+            kind="report",
         )
+        admins = await people.admin_ids()
+        if admins:
+            await notify_users(
+                admins,
+                f"Neighbours confirmed: {report.shop_name}",
+                f"{positive} of {total} people nearby say '{report.shop_name}' is really "
+                "there. It is ready for your decision.",
+                kind="report",
+                link={"route": "admin_review", "id": report.id},
+            )
 
     db.refresh(report)
     return (await _name_commenters([_with_counts(db, report)]))[0]
@@ -522,13 +651,28 @@ async def confirm_shop_report(
 @router.post("/shop-reports/{report_id}/request-phone")
 async def request_shop_phone_from_nearby(
     report_id: str,
-    _current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Admin requests nearby users to comment the shop owner's phone number."""
+    """Admin asks the people near a suggested shop for its phone number.
+
+    Used when the reporter left the number out, so the admin cannot just
+    ring the shop. Goes to everyone who already answered or commented on
+    this suggestion and to everyone known to be nearby (the same people who
+    were asked to confirm it). Tapping the message opens the suggestion's
+    comments, where they can write the number.
+
+    Before, this only published an event nobody listened to, so the admin
+    saw "sent" and nobody was actually told anything.
+    """
     report = db.get(NewShopReport, report_id)
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop report not found")
+    if report.status == ShopReportStatus.rejected:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This suggestion was rejected.",
+        )
 
     rows = (
         db.query(ShopReportConfirmation)
@@ -536,30 +680,59 @@ async def request_shop_phone_from_nearby(
         .all()
     )
     total, positive, ratio = conf.tally(rows)
-    pct = round(ratio * 100, 1) if total > 0 else 0.0
+    answered = {row.user_id for row in rows}
+    answered |= {
+        row.user_id
+        for row in db.query(SuggestionGeneralComment)
+        .filter(SuggestionGeneralComment.report_id == report.id)
+        .all()
+    }
+    exclude = {current_user.id, ""}
+    recipients = sorted(
+        (answered - exclude - {None})
+        | set(await _people_near_report(db, report, exclude))
+    )[: nearby_people.MAX_NOTIFIED]
 
-    msg = (
-        f"Help complete shop details: '{report.shop_name}' at {report.address} "
-        f"was verified by {pct}% of neighbours! "
-        "If you know the owner's phone number, please comment it on MicroLink."
+    where = f" at {report.address}" if report.address else ""
+    support = (
+        f" {positive} of {total} neighbours have confirmed it so far."
+        if total
+        else ""
     )
-
+    title = f"Do you know the phone number of '{report.shop_name}'?"
+    body = (
+        f"'{report.shop_name}' ({report.category}){where} was suggested on MicroLink, "
+        f"but nobody gave its phone number.{support} "
+        "If you know it, tap here and write it in the comments so an admin can call the shop."
+    )
+    await notify_users(
+        recipients,
+        title,
+        body,
+        kind="report",
+        link={"route": "suggestion_comments", "id": report.id, "name": report.shop_name},
+    )
     await publish_event(
         "shop_report.request_phone",
         {
             "report_id": report.id,
             "shop_name": report.shop_name,
-            "address": report.address,
-            "latitude": report.latitude,
-            "longitude": report.longitude,
-            "message": msg,
+            "recipients": len(recipients),
         },
     )
 
+    sent = len(recipients)
     return {
         "status": "ok",
-        "message": f"Broadcast notification sent to nearby users for '{report.shop_name}'",
-        "detail": msg,
+        "recipients": sent,
+        "message": (
+            f"Asked {sent} nearby user{'s' if sent != 1 else ''} for the phone number of "
+            f"'{report.shop_name}'"
+            if sent
+            else "Nobody near this shop is on MicroLink yet, so nobody could be asked."
+        ),
+        "detail": body,
+        "confirmed_ratio": round(ratio, 3),
     }
 
 
