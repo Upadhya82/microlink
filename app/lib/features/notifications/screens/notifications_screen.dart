@@ -17,6 +17,7 @@ import '../../../core/widgets/list_filter_bar.dart';
 import '../../../core/widgets/skeleton_list.dart';
 import '../unread_count_controller.dart';
 import '../../../core/widgets/branded_app_bar.dart';
+import '../../crowdsourcing/widgets/suggestion_comments.dart';
 
 /// The notification centre, available to every role (the use-case diagram's
 /// "View Notifications"). Rows are produced backend-side by admin-service's
@@ -182,6 +183,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         Navigator.pushNamed(context, AppRoutes.driverHome);
       case 'admin':
         Navigator.pushNamed(context, AppRoutes.adminDashboard);
+      case 'admin_review':
+        // A new or confirmed shop suggestion: open the suggestions tab (1).
+        Navigator.pushNamed(context, AppRoutes.adminReview, arguments: 1);
+      case 'suggestion_comments':
+        // An admin asked for a suggested shop's phone number: open its
+        // comments, where the number can be written in.
+        if (id != null) {
+          final name = notification.link['name'];
+          showSuggestionComments(
+            context,
+            reportId: id,
+            shopName: name is String && name.isNotEmpty ? name : 'Suggested shop',
+          );
+        }
       case 'shop_owner':
         // Low-stock and sold-out alerts: the owner's Products tab is where
         // they restock and unhide.
