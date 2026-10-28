@@ -562,8 +562,22 @@ class _ShopQueueTabState extends _QueueTabState<_ShopQueueTab> {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.schedule, size: 16), SizedBox(width: 4), Text('Leave pending')]),
+                    // Shares the row with the reject icon and Verify, which
+                    // leaves it about 90px on a 393px phone -- less than the
+                    // icon and label need, so it overflowed by 26px. Tighter
+                    // padding plus scaleDown keeps the full label, shrinking
+                    // it only on screens too narrow to fit it.
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                    ),
                     onPressed: () => _promptLeavePending(shop),
+                    child: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [Icon(Icons.schedule, size: 16), SizedBox(width: 4), Text('Leave pending')],
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: AppSpacing.xs),
