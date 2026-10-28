@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/features/admin/screens/admin_applicant_screen.dart';
+import 'package:frontend/features/admin/widgets/admin_document_preview.dart';
 
 Map<String, dynamic> _user({
   String role = 'shop_owner',
@@ -79,5 +80,79 @@ void main() {
 
     expect(find.text('Vehicle'), findsOneWidget);
     expect(find.text('Delivery agent'), findsOneWidget);
+  });
+
+  group('documents, one under each heading', () {
+    Map<String, dynamic> doc(String type, {String contentType = 'image/jpeg'}) => {
+          'id': 'doc-$type',
+          'doc_type': type,
+          'file_name': '$type.jpg',
+          'content_type': contentType,
+          'size_bytes': 250000,
+          'created_at': '2026-10-18T10:00:00+00:00',
+        };
+
+    Future<void> pumpSection(WidgetTester tester, List<Map<String, dynamic>> documents) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: ApplicantDocumentsSection(
+              requiredTypes: const ['national_id', 'business_registration', 'profile_photo'],
+              documents: documents,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+    }
+
+    testWidgets('each document sits directly under its own heading', (tester) async {
+      await pumpSection(tester, [
+        doc('profile_photo'),
+        doc('national_id'),
+        doc('business_registration'),
+      ]);
+
+      final previews = find.byType(AdminDocumentPreview);
+      expect(previews, findsNWidgets(3));
+      // Headings in the role's order, each with its own preview below it
+      // and above the next heading.
+      final labels = ['National ID', 'Business registration', 'Profile photo'];
+      for (var i = 0; i < labels.length; i++) {
+        final headingY = tester.getTopLeft(find.text(labels[i])).dy;
+        final previewY = tester.getTopLeft(previews.at(i)).dy;
+        expect(previewY, greaterThan(headingY), reason: '${labels[i]} preview is under it');
+        if (i + 1 < labels.length) {
+          expect(previewY, lessThan(tester.getTopLeft(find.text(labels[i + 1])).dy));
+        }
+      }
+      // The preview under National ID is the national ID file, not another.
+      expect(
+        tester.widget<AdminDocumentPreview>(previews.at(0)).document['doc_type'],
+        'national_id',
+      );
+    });
+
+    testWidgets('a missing document says so in its place', (tester) async {
+      await pumpSection(tester, [doc('national_id')]);
+
+      expect(find.byType(AdminDocumentPreview), findsOneWidget);
+      expect(find.text('Not uploaded'), findsNWidgets(2));
+      expect(find.text('Missing'), findsNWidgets(2));
+      expect(find.text('Uploaded'), findsOneWidget);
+    });
+
+    testWidgets('a PDF gets an open button instead of a picture', (tester) async {
+      await pumpSection(tester, [doc('national_id', contentType: 'application/pdf')]);
+
+      expect(find.text('Open PDF'), findsOneWidget);
+    });
+
+    testWidgets('extra uploads appear under Other documents', (tester) async {
+      await pumpSection(tester, [doc('national_id'), doc('driving_licence')]);
+
+      expect(find.text('Other documents'), findsOneWidget);
+      expect(find.text('Driving licence'), findsOneWidget);
+    });
   });
 }

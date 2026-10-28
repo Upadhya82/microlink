@@ -9,7 +9,7 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/branded_app_bar.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../account/document_types.dart';
-import '../widgets/admin_document_row.dart';
+import '../widgets/admin_document_preview.dart';
 
 /// One shop owner or delivery agent application, as the admin reviews it.
 ///
@@ -220,7 +220,7 @@ class _AdminApplicantScreenState extends State<AdminApplicantScreen> {
             Text('Documents', style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              'Open each one full size and check it before deciding.',
+              'Each document is shown under its name. Tap a picture to zoom in, and check every one before deciding.',
               style: textTheme.bodySmall?.copyWith(color: colors.textSecondary),
             ),
             const SizedBox(height: AppSpacing.sm),
@@ -325,9 +325,6 @@ class _AdminApplicantScreenState extends State<AdminApplicantScreen> {
 
   Widget _buildDocuments(BuildContext context) {
     final state = _documents;
-    final textTheme = Theme.of(context).textTheme;
-    final colors = context.appColors;
-    final colorScheme = Theme.of(context).colorScheme;
 
     return switch (state) {
       ViewLoading() => const Padding(
@@ -342,55 +339,9 @@ class _AdminApplicantScreenState extends State<AdminApplicantScreen> {
             ],
           ),
         ),
-      ViewData(:final data) => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // What this role must supply, ticked off against what arrived.
-            AppCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Required for a $_roleLabel',
-                      style: textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
-                  const SizedBox(height: AppSpacing.sm),
-                  for (final type in _requiredDocs)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _missing(data).contains(type)
-                                ? Icons.cancel_outlined
-                                : Icons.check_circle_rounded,
-                            size: 18,
-                            color: _missing(data).contains(type) ? colorScheme.error : colors.success,
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(child: Text(docTypeFor(type).label, style: textTheme.bodyMedium)),
-                          if (_missing(data).contains(type))
-                            Text('Missing',
-                                style: textTheme.bodySmall?.copyWith(color: colorScheme.error)),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            if (data.isEmpty)
-              AppCard(
-                child: Text(
-                  'No documents uploaded.',
-                  style: textTheme.bodySmall?.copyWith(color: colors.textSecondary),
-                ),
-              )
-            else
-              AppCard(
-                child: Column(
-                  children: [for (final d in data) AdminDocumentRow(document: d)],
-                ),
-              ),
-          ],
+      ViewData(:final data) => ApplicantDocumentsSection(
+          requiredTypes: _requiredDocs,
+          documents: data,
         ),
     };
   }
@@ -529,6 +480,116 @@ class _RejectDialogState extends State<_RejectDialog> {
           child: const Text('Reject'),
         ),
       ],
+    );
+  }
+}
+
+
+/// The applicant's documents, one card per type: the heading (with whether
+/// it arrived), what it should show, and the document itself underneath at
+/// a size the admin can read. Every type the role must supply gets a card
+/// even when it is missing, so a gap cannot hide; anything else they
+/// uploaded follows under "Other documents".
+class ApplicantDocumentsSection extends StatelessWidget {
+  /// Document types the role must supply, in the order to show them.
+  final List<String> requiredTypes;
+
+  /// Rows from `GET /users/{id}/documents`.
+  final List<Map<String, dynamic>> documents;
+
+  const ApplicantDocumentsSection({
+    super.key,
+    required this.requiredTypes,
+    required this.documents,
+  });
+
+  Map<String, dynamic>? _documentOf(String type) =>
+      documents.where((d) => d['doc_type']?.toString() == type).firstOrNull;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final others = documents
+        .where((d) => !requiredTypes.contains(d['doc_type']?.toString()))
+        .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final type in requiredTypes) ...[
+          _DocumentCard(type: type, document: _documentOf(type)),
+          const SizedBox(height: AppSpacing.md),
+        ],
+        if (others.isNotEmpty) ...[
+          Text('Other documents',
+              style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: AppSpacing.sm),
+          for (final document in others) ...[
+            _DocumentCard(type: document['doc_type']?.toString() ?? '', document: document),
+            const SizedBox(height: AppSpacing.md),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+class _DocumentCard extends StatelessWidget {
+  final String type;
+  final Map<String, dynamic>? document;
+
+  const _DocumentCard({required this.type, required this.document});
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+    final colors = context.appColors;
+    final known = kAllDocTypes.where((t) => t.value == type).firstOrNull;
+    final label = known?.label ?? type.replaceAll('_', ' ');
+    final uploaded = document != null;
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(known?.icon ?? Icons.description_outlined, color: colorScheme.primary),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(label,
+                    style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+              ),
+              StatusBadge(
+                label: uploaded ? 'Uploaded' : 'Missing',
+                background: uploaded
+                    ? colors.success.withValues(alpha: 0.18)
+                    : colorScheme.errorContainer,
+                foreground: uploaded ? colors.success : colorScheme.onErrorContainer,
+              ),
+            ],
+          ),
+          if (known != null) ...[
+            const SizedBox(height: 2),
+            Text(known.help, style: textTheme.bodySmall?.copyWith(color: colors.textSecondary)),
+          ],
+          const SizedBox(height: AppSpacing.sm),
+          if (uploaded)
+            AdminDocumentPreview(document: document!)
+          else
+            Container(
+              height: 90,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppRadius.input),
+                border: Border.all(color: colorScheme.error.withValues(alpha: 0.5)),
+              ),
+              child: Text('Not uploaded',
+                  style: textTheme.bodyMedium?.copyWith(color: colorScheme.error)),
+            ),
+        ],
+      ),
     );
   }
 }
