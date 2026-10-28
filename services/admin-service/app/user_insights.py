@@ -12,6 +12,9 @@ signs up. So a user's area is worked out from data the system already has:
   * shop owner ...... the location of their (first) shop          (shop-service)
   * delivery agent .. their last shared live location             (delivery-service)
   * customer ........ the address of their most recent delivery   (delivery-service)
+  * anyone else ..... where they last suggested a shop or reported
+                      a road problem -- only when none of the
+                      above is known                              (crowdsource-service)
 
 That point is matched to the nearest of Sri Lanka's 25 districts (by its
 centre and main towns), which gives the district and its province. It is an estimate -- a point near
@@ -192,12 +195,19 @@ def user_points(
     shops: Iterable[dict],
     agents: Iterable[dict],
     orders: Iterable[dict],
+    shop_reports: Iterable[dict] = (),
+    road_reports: Iterable[dict] = (),
 ) -> dict[str, tuple[float, float, str]]:
     """user id -> (lat, lng, where the point came from), from the other services' data.
 
     A shop owner with several shops is placed at the first one listed; a
     customer at the newest order (the lists arrive newest first, so the
     first order seen for a customer wins).
+
+    Shop suggestions and road reports come last, and only fill in users with
+    no better point: a customer who has never ordered is otherwise "Location
+    not known", but someone who suggested a shop or reported a pothole was
+    standing in that area. Newest report first, like the orders.
     """
     points: dict[str, tuple[float, float, str]] = {}
     for shop in shops:
@@ -216,6 +226,14 @@ def user_points(
                 order.get("delivery_lng"),
                 "last delivery address",
             )
+    for rows, source in (
+        (shop_reports, "suggested a shop here"),
+        (road_reports, "reported a road problem here"),
+    ):
+        for report in rows:
+            reporter = str(report.get("reporter_id") or "")
+            if reporter and reporter not in points and report.get("latitude") is not None:
+                points[reporter] = (report["latitude"], report.get("longitude"), source)
     return points
 
 

@@ -50,6 +50,9 @@ class InsightUser {
   final String? district;
   final String? province;
 
+  /// False for a shop owner or delivery agent still waiting for approval.
+  final bool isVerified;
+
   const InsightUser({
     required this.id,
     required this.fullName,
@@ -59,7 +62,15 @@ class InsightUser {
     required this.createdAt,
     required this.district,
     required this.province,
+    this.isVerified = true,
   });
+
+  /// One of [insightStatuses]: deactivated wins over waiting for approval.
+  String get status {
+    if (!isActive) return 'deactivated';
+    if (!isVerified) return 'pending';
+    return 'active';
+  }
 
   factory InsightUser.fromJson(Map<String, dynamic> json) => InsightUser(
         id: json['id']?.toString() ?? '',
@@ -70,6 +81,7 @@ class InsightUser {
         createdAt: DateTime.tryParse(json['created_at']?.toString() ?? ''),
         district: json['district'] as String?,
         province: json['province'] as String?,
+        isVerified: json['is_verified'] != false,
       );
 
   String get areaLabel =>
@@ -117,19 +129,53 @@ class UserInsights {
   }
 }
 
+/// Account states shown in the status filter and chart, in display order.
+const List<String> insightStatuses = ['active', 'pending', 'deactivated'];
+
+String insightStatusLabel(String status) => switch (status) {
+      'active' => 'Active',
+      'pending' => 'Waiting approval',
+      'deactivated' => 'Deactivated',
+      _ => status,
+    };
+
+/// "Joined" filter choices: key -> (label, how many days back; null = all).
+const Map<String, (String, int?)> insightJoinedRanges = {
+  'all': ('Any time', null),
+  'week': ('Last 7 days', 7),
+  'month': ('Last 30 days', 30),
+  'quarter': ('Last 3 months', 91),
+  'year': ('Last 12 months', 365),
+};
+
 /// The users that match an area filter and a search. A null [province]
 /// means island-wide (everyone, including users whose area is not known);
-/// a null [district] means every district in the province.
+/// a null [district] means every district in the province. A null [role]
+/// or [status] means all of them; [joinedWithinDays] keeps only users who
+/// joined that recently.
 List<InsightUser> filterInsightUsers(
   List<InsightUser> users, {
   String? province,
   String? district,
   String query = '',
+  String? role,
+  String? status,
+  int? joinedWithinDays,
+  DateTime? now,
 }) {
   final text = query.trim().toLowerCase();
+  final since = joinedWithinDays == null
+      ? null
+      : (now ?? DateTime.now()).subtract(Duration(days: joinedWithinDays));
   return users.where((user) {
     if (province != null && user.province != province) return false;
     if (district != null && user.district != district) return false;
+    if (role != null && user.role != role) return false;
+    if (status != null && user.status != status) return false;
+    if (since != null) {
+      final joined = user.createdAt;
+      if (joined == null || joined.isBefore(since)) return false;
+    }
     if (text.isEmpty) return true;
     return user.fullName.toLowerCase().contains(text) ||
         user.email.toLowerCase().contains(text);
@@ -141,6 +187,42 @@ Map<String, int> countByRole(List<InsightUser> users) {
   final counts = {for (final role in insightRoles) role: 0};
   for (final user in users) {
     if (counts.containsKey(user.role)) counts[user.role] = counts[user.role]! + 1;
+  }
+  return counts;
+}
+
+/// New users per calendar month for the last [months] months (oldest
+/// first), each split by role -- for the "New users per month" chart.
+List<({String label, Map<String, int> counts})> joinsByMonth(
+  List<InsightUser> users, {
+  int months = 6,
+  DateTime? now,
+}) {
+  const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  final today = (now ?? DateTime.now()).toLocal();
+  final rows = <({String label, Map<String, int> counts})>[];
+  for (var back = months - 1; back >= 0; back--) {
+    final month = DateTime(today.year, today.month - back);
+    final inMonth = users.where((user) {
+      final joined = user.createdAt?.toLocal();
+      return joined != null &&
+          joined.year == month.year &&
+          joined.month == month.month;
+    }).toList();
+    final label = month.year == today.year
+        ? names[month.month - 1]
+        : "${names[month.month - 1]} '${(month.year % 100).toString().padLeft(2, '0')}";
+    rows.add((label: label, counts: countByRole(inMonth)));
+  }
+  return rows;
+}
+
+/// How many of [users] are in each of [insightStatuses].
+Map<String, int> countByStatus(List<InsightUser> users) {
+  final counts = {for (final status in insightStatuses) status: 0};
+  for (final user in users) {
+    counts[user.status] = (counts[user.status] ?? 0) + 1;
   }
   return counts;
 }
@@ -157,6 +239,9 @@ class _AdminUserInsightsTabState extends State<AdminUserInsightsTab>
   String? _province; // null = island-wide
   String? _district; // null = all districts in the province
   String _query = '';
+  String? _role; // null = every role
+  String? _status; // null = every status
+  String _joined = 'all'; // a key of insightJoinedRanges
 
   /// How many matching users the list shows before "Show more".
   static const int _pageSize = 30;
@@ -209,6 +294,25 @@ class _AdminUserInsightsTabState extends State<AdminUserInsightsTab>
     return 'All of Sri Lanka';
   }
 
+  Color _statusColor(BuildContext context, String status) => switch (status) {
+        'active' => context.appColors.success,
+        'pending' => context.appColors.warning,
+        _ => Theme.of(context).colorScheme.error,
+      };
+
+  bool get _anyExtraFilter => _role != null || _status != null || _joined != 'all';
+
+  void _resetFilters() => setState(() {
+        _province = null;
+        _district = null;
+        _role = null;
+        _status = null;
+        _joined = 'all';
+        _query = '';
+        _searchController.clear();
+        _shown = _pageSize;
+      });
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -231,8 +335,26 @@ class _AdminUserInsightsTabState extends State<AdminUserInsightsTab>
       province: _province,
       district: _district,
       query: _query,
+      role: _role,
+      status: _status,
+      joinedWithinDays: insightJoinedRanges[_joined]?.$2,
     );
     final roleCounts = countByRole(matching);
+    final statusCounts = countByStatus(matching);
+    // The month chart ignores the "joined" filter on purpose: it is the
+    // filter's picture over time, so cutting it to one week would leave
+    // five empty months.
+    final monthRows = joinsByMonth(
+      filterInsightUsers(
+        data.users,
+        province: _province,
+        district: _district,
+        query: _query,
+        role: _role,
+        status: _status,
+      ),
+    );
+    final visibleRoles = _role == null ? insightRoles : [_role!];
 
     // The area chart: provinces island-wide, districts inside a province.
     final List<({String label, Map<String, int> counts})> areaRows;
@@ -310,7 +432,85 @@ class _AdminUserInsightsTabState extends State<AdminUserInsightsTab>
           style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: AppSpacing.sm),
+        // Role
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.xs,
+          children: [
+            ChoiceChip(
+              label: const Text('All roles'),
+              selected: _role == null,
+              onSelected: (_) => setState(() {
+                _role = null;
+                _shown = _pageSize;
+              }),
+            ),
+            for (final role in insightRoles)
+              ChoiceChip(
+                label: Text(insightRoleLabel(role)),
+                selected: _role == role,
+                onSelected: (_) => setState(() {
+                  _role = _role == role ? null : role;
+                  _shown = _pageSize;
+                }),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<String?>(
+                key: ValueKey('status-$_status'),
+                initialValue: _status,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Status',
+                  prefixIcon: Icon(Icons.verified_user_outlined),
+                ),
+                items: [
+                  const DropdownMenuItem<String?>(value: null, child: Text('All')),
+                  for (final status in insightStatuses)
+                    DropdownMenuItem<String?>(
+                      value: status,
+                      child: Text(insightStatusLabel(status)),
+                    ),
+                ],
+                onChanged: (value) => setState(() {
+                  _status = value;
+                  _shown = _pageSize;
+                }),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                key: ValueKey('joined-$_joined'),
+                initialValue: _joined,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Joined',
+                  prefixIcon: Icon(Icons.event_outlined),
+                ),
+                items: [
+                  for (final entry in insightJoinedRanges.entries)
+                    DropdownMenuItem<String>(
+                      value: entry.key,
+                      child: Text(entry.value.$1),
+                    ),
+                ],
+                onChanged: (value) => setState(() {
+                  _joined = value ?? 'all';
+                  _shown = _pageSize;
+                }),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
         DropdownButtonFormField<String?>(
+          // Rebuilt by "Clear filters", so it shows the reset value.
+          key: ValueKey('province-$_province'),
           initialValue: _province,
           isExpanded: true,
           decoration: const InputDecoration(
@@ -386,6 +586,15 @@ class _AdminUserInsightsTabState extends State<AdminUserInsightsTab>
             _shown = _pageSize;
           }),
         ),
+        if (_province != null || _query.isNotEmpty || _anyExtraFilter)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _resetFilters,
+              icon: const Icon(Icons.filter_alt_off_outlined, size: 18),
+              label: const Text('Clear filters'),
+            ),
+          ),
 
         // --- Chart: users by role for the current filter ---
         const SizedBox(height: AppSpacing.xl),
@@ -403,6 +612,43 @@ class _AdminUserInsightsTabState extends State<AdminUserInsightsTab>
           padding: const EdgeInsets.all(AppSpacing.md),
           child: _RoleBarChart(
             counts: roleCounts,
+            colorFor: (role) => _roleColor(context, role),
+          ),
+        ),
+
+        // --- Chart: account status ---
+        const SizedBox(height: AppSpacing.xl),
+        Text(
+          'Users by status · $_scopeLabel',
+          style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        AppCard(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: _RoleBarChart(
+            counts: statusCounts,
+            keys: insightStatuses,
+            labelFor: insightStatusLabel,
+            colorFor: (status) => _statusColor(context, status),
+            onTap: (status) => setState(() {
+              _status = _status == status ? null : status;
+              _shown = _pageSize;
+            }),
+          ),
+        ),
+
+        // --- Chart: new users per month ---
+        const SizedBox(height: AppSpacing.xl),
+        Text(
+          'New users per month · last 6 months',
+          style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        AppCard(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: _MonthBarChart(
+            rows: monthRows,
+            roles: visibleRoles,
             colorFor: (role) => _roleColor(context, role),
           ),
         ),
@@ -436,8 +682,9 @@ class _AdminUserInsightsTabState extends State<AdminUserInsightsTab>
           const SizedBox(height: AppSpacing.xs),
           Text(
             'Tap a bar to look inside that area. Areas are estimated from '
-            'shop locations, delivery agents\' live locations and customers\' '
-            'last delivery addresses.',
+            'shop locations, delivery agents\' live locations, customers\' '
+            'last delivery addresses, and where people suggested a shop or '
+            'reported a road problem.',
             style: textTheme.bodySmall?.copyWith(color: secondary),
           ),
         ],
@@ -532,12 +779,23 @@ class _TotalCard extends StatelessWidget {
   }
 }
 
-/// Three vertical bars: customers, shop owners, delivery agents.
+/// Vertical bars, one per key: by default customers, shop owners and
+/// delivery agents; the status chart passes its own keys and labels. A bar
+/// can be tapped when [onTap] is given (the status chart uses it as a filter).
 class _RoleBarChart extends StatelessWidget {
   final Map<String, int> counts;
   final Color Function(String role) colorFor;
+  final List<String> keys;
+  final String Function(String key) labelFor;
+  final void Function(String key)? onTap;
 
-  const _RoleBarChart({required this.counts, required this.colorFor});
+  const _RoleBarChart({
+    required this.counts,
+    required this.colorFor,
+    this.keys = insightRoles,
+    this.labelFor = insightRoleLabel,
+    this.onTap,
+  });
 
   static const double _chartHeight = 160;
 
@@ -553,9 +811,12 @@ class _RoleBarChart extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              for (final role in insightRoles)
+              for (final role in keys)
                 Expanded(
-                  child: Padding(
+                  child: InkWell(
+                    onTap: onTap == null ? null : () => onTap!(role),
+                    borderRadius: BorderRadius.circular(6),
+                    child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.end,
@@ -581,6 +842,7 @@ class _RoleBarChart extends StatelessWidget {
                       ],
                     ),
                   ),
+                  ),
                 ),
             ],
           ),
@@ -589,10 +851,130 @@ class _RoleBarChart extends StatelessWidget {
         const SizedBox(height: AppSpacing.xs),
         Row(
           children: [
-            for (final role in insightRoles)
+            for (final role in keys)
               Expanded(
                 child: Text(
-                  insightRoleLabel(role),
+                  labelFor(role),
+                  textAlign: TextAlign.center,
+                  style: textTheme.bodySmall,
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// One vertical bar per month, stacked by role, with the total on top.
+class _MonthBarChart extends StatelessWidget {
+  final List<({String label, Map<String, int> counts})> rows;
+  final List<String> roles;
+  final Color Function(String role) colorFor;
+
+  const _MonthBarChart({
+    required this.rows,
+    required this.roles,
+    required this.colorFor,
+  });
+
+  static const double _chartHeight = 140;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    int total(Map<String, int> counts) =>
+        roles.fold<int>(0, (sum, role) => sum + (counts[role] ?? 0));
+    final highest = rows.fold<int>(0, (best, row) {
+      final value = total(row.counts);
+      return value > best ? value : best;
+    });
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (roles.length > 1) ...[
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.xs,
+            children: [
+              for (final role in roles)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: colorFor(role),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(insightRoleLabel(role), style: textTheme.bodySmall),
+                  ],
+                ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
+        SizedBox(
+          height: _chartHeight + 24,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (final row in rows)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text(
+                          '${total(row.counts)}',
+                          style: textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 4),
+                        ClipRRect(
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                          child: SizedBox(
+                            height: highest == 0 || total(row.counts) == 0
+                                ? 3.0
+                                : (total(row.counts) / highest * _chartHeight)
+                                    .clamp(3.0, _chartHeight),
+                            child: total(row.counts) == 0
+                                ? Container(
+                                    color: context.appColors.textSecondary
+                                        .withValues(alpha: 0.2),
+                                  )
+                                : Column(
+                                    children: [
+                                      // Top to bottom, so the first role sits on the axis.
+                                      for (final role in roles.reversed)
+                                        if ((row.counts[role] ?? 0) > 0)
+                                          Expanded(
+                                            flex: row.counts[role]!,
+                                            child: Container(color: colorFor(role)),
+                                          ),
+                                    ],
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Divider(height: 1, color: context.appColors.textSecondary.withValues(alpha: 0.3)),
+        const SizedBox(height: AppSpacing.xs),
+        Row(
+          children: [
+            for (final row in rows)
+              Expanded(
+                child: Text(
+                  row.label,
                   textAlign: TextAlign.center,
                   style: textTheme.bodySmall,
                 ),
@@ -772,6 +1154,7 @@ class _UserRow extends StatelessWidget {
                   [
                     _joined(user.createdAt),
                     if (!user.isActive) 'Deactivated',
+                    if (user.isActive && !user.isVerified) 'Waiting approval',
                   ].where((part) => part.isNotEmpty).join(' · '),
                   style: textTheme.labelSmall?.copyWith(color: secondary),
                 ),

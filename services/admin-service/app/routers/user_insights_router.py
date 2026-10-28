@@ -28,6 +28,9 @@ _USERS_URL = "http://user-service:8000/users"
 _SHOPS_URL = "http://shop-service:8000/shops"
 _AGENTS_URL = "http://delivery-service:8000/delivery/agents"
 _ORDERS_URL = "http://delivery-service:8000/delivery/orders"
+# Admins see every suggestion here; road reports are open to everyone.
+_SHOP_REPORTS_URL = "http://crowdsource-service:8000/crowdsource/shop-reports"
+_ROAD_REPORTS_URL = "http://crowdsource-service:8000/crowdsource/road-reports"
 
 _TIMEOUT_SECONDS = 8.0
 
@@ -74,10 +77,14 @@ async def get_user_insights(
             )
         users = [user for response in user_responses for user in response.json()]
 
-        shops, agents, orders = await asyncio.gather(
+        shops, agents, orders, shop_reports, road_reports = await asyncio.gather(
             _get_list(client, _SHOPS_URL, {"limit": 200}, headers),
             _get_list(client, _AGENTS_URL, {}, headers),
             _get_list(client, _ORDERS_URL, {"limit": 500}, headers),
+            _get_list(client, _SHOP_REPORTS_URL, {}, headers),
+            _get_list(client, _ROAD_REPORTS_URL, {}, headers),
         )
 
-    return build_insights(users, user_points(shops, agents, orders))
+    return build_insights(
+        users, user_points(shops, agents, orders, shop_reports, road_reports)
+    )
