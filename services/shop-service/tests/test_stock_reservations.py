@@ -187,6 +187,15 @@ class StockReservationTests(unittest.TestCase):
         self._reserve("order-3", [{"product_id": product_id, "quantity": 1}])
         self.assertEqual(len(self.notifications), 1)
 
+    def test_a_product_added_with_five_or_fewer_is_warned_once(self):
+        product_id = self._product(5, name="Butter Cake")
+        self._reserve("order-1", [{"product_id": product_id, "quantity": 1}])
+        self._reserve("order-2", [{"product_id": product_id, "quantity": 1}])
+        self.assertEqual(self._stock(product_id), 3)
+        self.assertEqual(len(self.notifications), 1)
+        self.assertIn("running low", self.notifications[0]["title"])
+        self.assertIn("Only 4", self.notifications[0]["body"])
+
     def test_a_sale_that_stays_above_five_sends_nothing(self):
         product_id = self._product(10)
         self._reserve("order-1", [{"product_id": product_id, "quantity": 2}])
