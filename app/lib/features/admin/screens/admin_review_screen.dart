@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors_extension.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/utils/media_url.dart';
 import '../../../core/utils/view_state.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
@@ -23,7 +25,12 @@ import '../widgets/admin_document_row.dart';
 /// these are the same job done against different queues -- the admin works
 /// through them in one sitting.
 class AdminReviewScreen extends StatelessWidget {
-  const AdminReviewScreen({super.key});
+  const AdminReviewScreen({super.key, this.initialTab = 0});
+
+  /// Index of the tab to open on. Tab 1 is the shop suggestions queue,
+  /// which a "new shop suggested" notification opens straight onto.
+  static const int suggestionsTab = 1;
+  final int initialTab;
 
   /// Height of one tab (icon + label). Flutter's default for a tab with both
   /// an icon and text is 72, which is taller than the space the header gave
@@ -40,6 +47,7 @@ class AdminReviewScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 5,
+      initialIndex: initialTab.clamp(0, 4),
       child: Scaffold(
         appBar: BrandedAppBar(
           title: Row(
@@ -208,8 +216,11 @@ abstract class _QueueTabState<T extends StatefulWidget> extends State<T> {
     load();
   }
 
-  Future<void> load() async {
-    setState(() => state = const ViewLoading());
+  /// [quiet] refreshes in the background: the list stays on screen (no
+  /// skeleton flash) and a failed refresh keeps the last good data, so a
+  /// live-updating queue never blanks out on one dropped request.
+  Future<void> load({bool quiet = false}) async {
+    if (!quiet) setState(() => state = const ViewLoading());
     try {
       final response = await ApiClient.instance.get(endpoint);
       final rows = (response as List)
@@ -218,10 +229,10 @@ abstract class _QueueTabState<T extends StatefulWidget> extends State<T> {
       if (!mounted) return;
       setState(() => state = ViewData(rows));
     } on ApiException catch (e) {
-      if (!mounted) return;
+      if (!mounted || quiet) return;
       setState(() => state = ViewError(e.message));
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || quiet) return;
       setState(() => state = const ViewError('Could not load this queue.'));
     }
   }
@@ -608,6 +619,42 @@ class _SuggestionQueueTabState extends _QueueTabState<_SuggestionQueueTab> {
   @override
   String get emptyMessage => 'New shops suggested by community users appear here for review.';
 
+  /// How often the queue re-reads itself while this tab is on screen, so the
+  /// neighbours' confirmations show up live without pulling to refresh.
+  /// (TabBarView disposes a tab that is scrolled away, which stops it.)
+  static const Duration _liveInterval = Duration(seconds: 5);
+  Timer? _live;
+
+  /// Suggestions whose phone-number request is on its way, so the button
+  /// cannot be pressed twice and send the neighbours two messages.
+  final Set<String> _asking = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _live = Timer.periodic(_liveInterval, (_) {
+      if (mounted) load(quiet: true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _live?.cancel();
+    super.dispose();
+  }
+
+  /// Opens the phone's dialler on the shop's number.
+  Future<void> _callShop(String phone) async {
+    final digits = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = Uri(scheme: 'tel', path: digits);
+    try {
+      final opened = await launchUrl(uri);
+      if (!opened) toast('Could not open the dialler. Number: $phone');
+    } catch (_) {
+      toast('Could not open the dialler. Number: $phone');
+    }
+  }
+
   Future<void> _setStatusSuggestion(Map<String, dynamic> item, String status) async {
     String? reason;
     if (status == 'rejected') {
@@ -666,14 +713,147 @@ class _SuggestionQueueTabState extends _QueueTabState<_SuggestionQueueTab> {
   }
 
   Future<void> _requestSuggestionPhone(Map<String, dynamic> item) async {
+    final id = item['id'].toString();
+    if (_asking.contains(id)) return;
+    setState(() => _asking.add(id));
     try {
       final res = await ApiClient.instance.post(
-        '/crowdsource/shop-reports/${item['id']}/request-phone',
+        '/crowdsource/shop-reports/$id/request-phone',
       ) as Map<String, dynamic>;
-      toast(res['message']?.toString() ?? 'Broadcast sent to nearby users');
+      toast(res['message']?.toString() ?? 'Asked nearby users for the number');
+    } on ApiException catch (e) {
+      toast(e.message);
     } catch (_) {
-      toast('Could not send request');
+      toast('Could not send the request');
+    } finally {
+      if (mounted) setState(() => _asking.remove(id));
     }
+  }
+
+  /// Green "Call" when the reporter gave a number; otherwise a plain grey
+  /// button that asks the people near the shop for it.
+  Widget _phoneAction(Map<String, dynamic> report, String status) {
+    final phone = (report['phone'] as String?)?.trim() ?? '';
+    if (phone.isNotEmpty) {
+      return SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.green.shade600,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: () => _callShop(phone),
+          icon: const Icon(Icons.call_rounded, size: 18),
+          label: Text('Call shop · $phone'),
+        ),
+      );
+    }
+    final id = report['id'].toString();
+    final asking = _asking.contains(id);
+    return SizedBox(
+      width: double.infinity,
+      child: Tooltip(
+        message: 'No phone number was given. '
+            'Tap to ask the people near this shop for it.',
+        child: OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.grey.shade700,
+            side: BorderSide(color: Colors.grey.shade400),
+          ),
+          onPressed: status == 'pending' && !asking
+              ? () => _requestSuggestionPhone(report)
+              : null,
+          icon: asking
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.phone_disabled_outlined, size: 18),
+          label: Text(
+            asking ? 'Asking nearby users…' : 'Call · no number – ask nearby users',
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Everything the person who suggested the shop filled in.
+  Widget _suggestionDetails(BuildContext context, Map<String, dynamic> report) {
+    final textTheme = Theme.of(context).textTheme;
+    final colors = context.appColors;
+    String two(int n) => n.toString().padLeft(2, '0');
+    String? when(Object? raw) {
+      final d = DateTime.tryParse(raw?.toString() ?? '')?.toLocal();
+      if (d == null) return null;
+      return '${d.year}-${two(d.month)}-${two(d.day)} ${two(d.hour)}:${two(d.minute)}';
+    }
+
+    final open = report['opening_time']?.toString() ?? '';
+    final close = report['closing_time']?.toString() ?? '';
+    final lat = (report['latitude'] as num?)?.toDouble();
+    final lng = (report['longitude'] as num?)?.toDouble();
+    final phone = (report['phone'] as String?)?.trim() ?? '';
+    final description = report['description']?.toString().trim() ?? '';
+    final photo = mediaUrl(report['photo_path']?.toString() ??
+        ((report['has_photo'] as bool? ?? false)
+            ? '/crowdsource/shop-reports/${report['id']}/photo'
+            : null));
+
+    Widget line(IconData icon, String label, String value) => Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 14, color: colors.textSecondary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '$label: ',
+                        style: textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      TextSpan(text: value, style: textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (photo != null) ...[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.network(
+              photo,
+              height: 150,
+              width: double.infinity,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+        ],
+        line(Icons.person_outline, 'Suggested by',
+            report['reporter_name']?.toString() ?? 'MicroLink user'),
+        if (when(report['created_at']) != null)
+          line(Icons.schedule_outlined, 'Submitted', when(report['created_at'])!),
+        line(Icons.call_outlined, 'Phone', phone.isEmpty ? 'Not given' : phone),
+        line(Icons.access_time, 'Hours',
+            open.isNotEmpty && close.isNotEmpty ? '$open – $close' : 'Not given'),
+        if (lat != null && lng != null)
+          line(Icons.place_outlined, 'Location',
+              '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}'),
+        line(Icons.notes_outlined, 'Description',
+            description.isEmpty ? 'Not given' : description),
+      ],
+    );
   }
 
   @override
@@ -761,6 +941,12 @@ class _SuggestionQueueTabState extends _QueueTabState<_SuggestionQueueTab> {
               ],
             ),
             const SizedBox(height: AppSpacing.sm),
+            _suggestionDetails(context, report),
+            if (status != 'rejected') ...[
+              const SizedBox(height: AppSpacing.sm),
+              _phoneAction(report, status),
+            ],
+            const SizedBox(height: AppSpacing.sm),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
@@ -797,6 +983,28 @@ class _SuggestionQueueTabState extends _QueueTabState<_SuggestionQueueTab> {
                 ],
               ),
             ),
+            if (status == 'pending' && report['fast_track'] != true) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade600,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Live – neighbours\' answers update automatically',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: colors.textSecondary,
+                        ),
+                  ),
+                ],
+              ),
+            ],
             if (comments.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.sm),
               Text('Neighbour Comments:', style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold)),
@@ -862,13 +1070,7 @@ class _SuggestionQueueTabState extends _QueueTabState<_SuggestionQueueTab> {
                       label: Text('Reject', style: TextStyle(color: Colors.red.shade700)),
                     ),
                   ),
-                  const SizedBox(width: AppSpacing.xs),
-                  IconButton.outlined(
-                    tooltip: 'Request phone number from nearby users',
-                    onPressed: () => _requestSuggestionPhone(report),
-                    icon: const Icon(Icons.phone_forwarded, size: 18),
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
+                  const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: FilledButton.icon(
                       onPressed: () => _setStatusSuggestion(report, 'approved'),
@@ -979,8 +1181,8 @@ class _ApplicantQueueTabState extends _QueueTabState<_ApplicantQueueTab> {
   }
 
   @override
-  Future<void> load() async {
-    setState(() => state = const ViewLoading());
+  Future<void> load({bool quiet = false}) async {
+    if (!quiet) setState(() => state = const ViewLoading());
     try {
       final response = await ApiClient.instance.get(endpoint);
       final rows = (response as List)

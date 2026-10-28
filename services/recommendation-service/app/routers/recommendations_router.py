@@ -11,7 +11,7 @@ from app.database import get_db
 from app.event_bus import publish_event
 from app.models import Dismissal, Favorite, Interaction, InteractionType
 from app.schemas import FavoriteResponse, InteractionCreateRequest, InteractionResponse
-from app.shop_client import fetch_open_shops, fetch_shop_catalog
+from app.shop_client import fetch_any_shops, fetch_open_shops, fetch_shop_catalog
 from app.user_client import fetch_preferred_categories
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
@@ -112,6 +112,11 @@ async def get_recommendations(
     then re-rank for category variety. Falls back gracefully to
     popularity + proximity for a brand-new user with no history."""
     candidates = await fetch_open_shops(lat, lng)
+    if not candidates:
+        # Nothing open right now (late at night, or a new install): rank
+        # every shop instead, so a brand-new user still sees the carousel
+        # on Home rather than an empty "browse a few shops" message.
+        candidates = await fetch_any_shops(lat, lng)
     if not candidates:
         return []
 

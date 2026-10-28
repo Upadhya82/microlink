@@ -113,6 +113,8 @@ class NewShopReportResponse(BaseModel):
     phone_user_id: str | None = None
     phone_user_name: str | None = None
     fast_track: bool = False
+    # Full name of the person who suggested the shop, for the admin.
+    reporter_name: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -127,8 +129,11 @@ class NewShopReportResponse(BaseModel):
 class ApprovedSuggestionResponse(BaseModel):
     """A user-suggested shop an admin approved, for the "User Suggestions" rail on Home.
 
-    Deliberately leaves out who suggested it and what neighbours commented:
-    every customer sees this list, and those belong to the moderation desk.
+    Shows who suggested it (full name only) and a peek at the conversation --
+    how many comments, and the newest one with its author's name -- so the
+    moving card on Home can show them. The full thread, which any signed-in
+    user can already read and add to, stays behind the card's tap. No ids,
+    email addresses or phone numbers of the people involved are sent.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -149,6 +154,12 @@ class ApprovedSuggestionResponse(BaseModel):
     approved_at: datetime
     # Set when the app sent its location.
     distance_km: float | None = None
+    # Full name of the person who suggested it.
+    reporter_name: str | None = None
+    # Every comment and reply on it, and the newest one with its author.
+    comment_count: int = 0
+    latest_comment: str | None = None
+    latest_comment_author: str | None = None
 
     @model_validator(mode="after")
     def _derive_photo_path(self):

@@ -9,6 +9,8 @@ Two rules, both driven by stock_router after a reservation:
     the hide is undone automatically (see `after_release`).
   * Running low -- a sale took the product down to `low_stock_threshold`
     (5) or fewer. The owner is told once per drop, with the product's name.
+    That includes a product that was added with 5 or fewer: its first sale
+    warns the owner too (`low_stock_notified` remembers it was sent).
 
 The decision itself is `logic.stock_alert_after_sale`, a pure function the
 tests can check without a database.
@@ -34,10 +36,24 @@ def after_sale(product: Product, sold: int) -> str | None:
     ("sold_out", "low_stock" or None). Does not commit.
     """
     after = product.stock_quantity
-    alert = logic.stock_alert_after_sale(after + sold, after, settings.low_stock_threshold)
+    before = after + sold
+    threshold = settings.low_stock_threshold
+    alert = logic.stock_alert_after_sale(before, after, threshold)
+    # The pure rule only sees a drop from above the threshold. A product
+    # that was already at or under it (added with 5, or restocked to 4) has
+    # not crossed anything, so it is warned the first time it sells unless
+    # that warning was already sent. Stock above the threshold before this
+    # sale means a restock happened, so an old warning no longer counts.
+    already_warned = bool(getattr(product, "low_stock_notified", False)) and before <= threshold
+    if alert is None and 0 < after <= threshold and not already_warned:
+        alert = "low_stock"
     if alert == SOLD_OUT:
         product.is_hidden = True
         product.hidden_reason = SOLD_OUT
+    if alert in ("low_stock", SOLD_OUT):
+        product.low_stock_notified = True
+    elif after > threshold:
+        product.low_stock_notified = False
     return alert
 
 

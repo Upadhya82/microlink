@@ -79,6 +79,26 @@ class UserPointsTests(unittest.TestCase):
         )
         self.assertEqual(points["cust"][:2], (7.29, 80.63))
 
+    def test_a_customer_with_no_order_is_placed_by_their_reports(self):
+        points = user_points(
+            shops=[],
+            agents=[],
+            orders=[],
+            shop_reports=[{"reporter_id": "cust", "latitude": 7.29, "longitude": 80.63}],
+            road_reports=[{"reporter_id": "walker", "latitude": 6.03, "longitude": 80.21}],
+        )
+        self.assertEqual(points["cust"], (7.29, 80.63, "suggested a shop here"))
+        self.assertEqual(points["walker"][2], "reported a road problem here")
+
+    def test_an_order_beats_a_report(self):
+        points = user_points(
+            shops=[],
+            agents=[],
+            orders=[{"customer_id": "cust", "delivery_lat": 9.66, "delivery_lng": 80.02}],
+            shop_reports=[{"reporter_id": "cust", "latitude": 7.29, "longitude": 80.63}],
+        )
+        self.assertEqual(points["cust"][2], "last delivery address")
+
     def test_an_agent_without_a_live_location_is_left_out(self):
         points = user_points([], [{"user_id": "agent", "current_lat": None}], [])
         self.assertNotIn("agent", points)

@@ -87,6 +87,24 @@ async def list_admin_ids(db: Session = Depends(get_db)):
     return {"admin_ids": [row.id for row in rows]}
 
 
+@router.get("/internal/active-ids")
+async def list_active_non_admin_ids(db: Session = Depends(get_db)):
+    """Every active non-admin account, for crowdsource-service's fallback.
+
+    When nobody is known to be near a suggested shop (a fresh install, a
+    quiet area), the suggestion is shown to everyone instead so it still gets
+    answered. crowdsource-service used to read this straight out of user_db
+    with a hard-coded password, which broke as soon as .env used a different
+    one. Internal: api-gateway blocks /users/internal/*. Ids only.
+    """
+    rows = (
+        db.query(User.id)
+        .filter(User.is_active.is_(True), User.role != UserRole.admin)
+        .all()
+    )
+    return {"user_ids": [row.id for row in rows]}
+
+
 def phone_key(phone: str | None) -> str:
     """The last 9 digits of a Sri Lankan number, however it was typed.
 

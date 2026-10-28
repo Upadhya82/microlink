@@ -100,6 +100,9 @@ _COLUMN_MIGRATIONS: list[str] = [
     # products: hidden after the last item sells, until the owner unhides it
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS hidden_reason VARCHAR(20)",
+    # products: the one "running low" warning has been sent for this drop,
+    # so a product that started at 5 or fewer is still warned about once.
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS low_stock_notified BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 

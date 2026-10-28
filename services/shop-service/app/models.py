@@ -243,6 +243,11 @@ class Product(Base):
     # cancelled, because the item is back on the shelf.
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     hidden_reason: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Whether the owner has been told this product is running low since it
+    # last had more than `low_stock_threshold` in stock. Lets a product that
+    # was added with 5 or fewer still get its one warning on the first sale,
+    # without repeating it on every sale after that.
+    low_stock_notified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now

@@ -56,6 +56,21 @@ async def phone_owner(phone: str | None) -> dict | None:
         return None
 
 
+_ACTIVE_IDS_URL = "http://user-service:8000/users/internal/active-ids"
+
+
+async def active_non_admin_ids() -> list[str]:
+    """Every active non-admin account (the "nobody known nearby" fallback)."""
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            response = await client.get(_ACTIVE_IDS_URL)
+            response.raise_for_status()
+            return [str(i) for i in response.json().get("user_ids", [])]
+    except Exception:
+        logger.warning("Could not look up active users", exc_info=True)
+        return []
+
+
 async def admin_ids() -> list[str]:
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:

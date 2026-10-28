@@ -610,6 +610,9 @@ class _HomeScreenState extends State<HomeScreen> {
             // The same moving carousel as the two rails above it.
             child: CoverflowCarousel(
               itemCount: _userSuggestions.length,
+              // Taller than the other rails: these cards also show who
+              // suggested the shop and the newest comment.
+              height: 300,
               step: const Duration(milliseconds: 4600),
               itemBuilder: (context, index) =>
                   SuggestedShopCard(shop: _userSuggestions[index]),

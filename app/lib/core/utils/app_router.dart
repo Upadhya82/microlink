@@ -87,7 +87,9 @@ class AppRouter {
       case AppRoutes.verificationDocuments:
         return _page(const VerificationDocumentsScreen(), settings);
       case AppRoutes.adminReview:
-        return _page(const AdminReviewScreen(), settings);
+        // An int argument opens a given tab (1 = shop suggestions).
+        final tab = settings.arguments is int ? settings.arguments as int : 0;
+        return _page(AdminReviewScreen(initialTab: tab), settings);
       case AppRoutes.settings:
         return _page(const SettingsScreen(), settings);
       case AppRoutes.about:

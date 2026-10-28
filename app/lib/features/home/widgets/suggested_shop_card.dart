@@ -151,6 +151,85 @@ class SuggestedShopCard extends StatelessWidget {
                         ),
                       ],
                     ),
+                    // Who suggested it, and a peek at the conversation. The
+                    // whole thread (and the box to add to it) is one tap away.
+                    if (shop.reporterName != null &&
+                        shop.reporterName!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.person_outline,
+                            size: 13,
+                            color: context.appColors.textSecondary,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              'Suggested by ${shop.reporterName}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.bodySmall?.copyWith(
+                                color: context.appColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 4),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.chat_bubble_outline,
+                          size: 13,
+                          color: context.appColors.textSecondary,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: shop.latestComment == null
+                              ? Text(
+                                  'No comments yet – tap to add one',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: textTheme.bodySmall?.copyWith(
+                                    color: context.appColors.textSecondary,
+                                  ),
+                                )
+                              : Text.rich(
+                                  TextSpan(
+                                    children: [
+                                      TextSpan(
+                                        text: '${shop.latestCommentAuthor ?? 'MicroLink user'}: ',
+                                        style: textTheme.bodySmall?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      TextSpan(
+                                        text: '"${shop.latestComment}"',
+                                        style: textTheme.bodySmall?.copyWith(
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                        ),
+                        if (shop.commentCount > 0) ...[
+                          const SizedBox(width: 4),
+                          Text(
+                            '${shop.commentCount}',
+                            style: textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: context.appColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ],
                 ),
               ),

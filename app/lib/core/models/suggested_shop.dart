@@ -23,6 +23,16 @@ class SuggestedShop {
   /// Set when the app sent its location with the request.
   final double? distanceKm;
 
+  /// Full name of the person who suggested it, when the server sends it.
+  final String? reporterName;
+
+  /// How many comments and replies it has.
+  final int commentCount;
+
+  /// The newest comment and who wrote it, or null when there are none.
+  final String? latestComment;
+  final String? latestCommentAuthor;
+
   const SuggestedShop({
     required this.id,
     required this.name,
@@ -37,6 +47,10 @@ class SuggestedShop {
     this.closingTime,
     this.photoPath,
     this.distanceKm,
+    this.reporterName,
+    this.commentCount = 0,
+    this.latestComment,
+    this.latestCommentAuthor,
   });
 
   /// "08:00 – 20:00", or null when the suggestion did not say.
@@ -62,6 +76,10 @@ class SuggestedShop {
       approvedAt: DateTime.tryParse(json['approved_at'] as String? ?? '') ??
           DateTime.now(),
       distanceKm: (json['distance_km'] as num?)?.toDouble(),
+      reporterName: json['reporter_name'] as String?,
+      commentCount: (json['comment_count'] as num?)?.toInt() ?? 0,
+      latestComment: json['latest_comment'] as String?,
+      latestCommentAuthor: json['latest_comment_author'] as String?,
     );
   }
 }
