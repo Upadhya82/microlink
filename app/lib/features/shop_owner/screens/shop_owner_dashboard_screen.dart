@@ -18,6 +18,7 @@ import '../../../core/widgets/order_filters.dart';
 import '../widgets/owner_filters.dart';
 import '../widgets/product_category_field.dart';
 import '../widgets/shop_performance_section.dart';
+import '../../notifications/widgets/notification_bell.dart';
 import '../../../core/utils/media_url.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/utils/route_args.dart';
@@ -277,6 +278,8 @@ class _EmbeddedHeader extends StatelessWidget {
                 ),
                 Text(
                   'Hi, ${session.userName ?? 'there'}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
                 ),
               ],
@@ -287,6 +290,10 @@ class _EmbeddedHeader extends StatelessWidget {
             tooltip: 'Switch to ${isDark ? 'light' : 'dark'} mode',
             onPressed: () => ThemeController.instance.toggle(Theme.of(context).brightness),
           ),
+          // Order, review, low-stock and verification alerts all land in the
+          // notification centre; the bell keeps it one tap away instead of
+          // behind the account sheet.
+          const NotificationBell(),
           IconButton(
             icon: const Icon(Icons.account_circle_outlined),
             tooltip: 'Account',
