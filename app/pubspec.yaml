@@ -34,7 +34,7 @@ dependencies:
   flutter_tts: ^4.2.0 # turn-by-turn voice guidance (English / Sinhala / Tamil)
 
   # --- Files (registration documents, shop photos) ---
-  file_picker: ^8.1.4 # replaces the simulated document picker in register_screen.dart
+  file_picker: ^10.3.10 # replaces the simulated document picker in register_screen.dart
 
   # --- Localization ---
   intl: ^0.20.3
